@@ -1,0 +1,16 @@
+{
+  "$schema": "https://json.schemastore.org/claude-code-marketplace.json",
+  "name": "ghostship",
+  "description": "Ghostship — the autonomous software factory, as a Claude Code plugin (instructional skill + mods).",
+  "owner": {
+    "name": "shekharcharles"
+  },
+  "plugins": [
+    {
+      "name": "ghostship",
+      "source": "./",
+      "description": "Run a project test-first from idea to release: PRD, design, acceptance checks (STOP 1), a phased plan, a TDD build driven by builder and judge subagents, and a reviewed release (STOP 2).",
+      "category": "workflow"
+    }
+  ]
+}

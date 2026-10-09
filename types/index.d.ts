@@ -1,0 +1,19 @@
+// Self-contained $.state contract for the Ghostship mod (no imports allowed here).
+
+export type VoyageSnap = {
+  stages: { label: string; state: 'd' | 'c' | 't' }[]
+  curLabel: string
+  released: boolean
+  phase: string | null
+  task: string | null
+  stop: string | null       // the stop's text while awaiting
+  awaiting: boolean
+  activeMs: number          // elapsed on the active task when published; -1 for none
+  visible: boolean
+}
+
+declare module 'claude-code' {
+  interface PluginState {
+    ghostship: { snap: VoyageSnap | null; hidden: boolean }
+  }
+}

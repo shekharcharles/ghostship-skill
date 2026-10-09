@@ -1,0 +1,50 @@
+import { test, expect } from "claude-code/testing";
+import { parseState, parseBoard, progressBar, statusMark, voyageOf as parseVoyage } from "../hooks/state";
+
+test("parseState reads stage, task, autonomy, phase and the in-flight fields", () => {
+  const s = parseState(`autonomy: auto\nstage: build\nphase: 2/3\nactive task: T005\njudge: verifying\nred: done.test.mjs\ngreen: suite 24/24\n`);
+  expect(s.stage).toBe("build");
+  expect(s.task).toBe("T005");
+  expect(s.autonomy).toBe("auto");
+  expect(s.phase).toBe("2/3");
+  expect(s.judge).toBe("verifying");
+  expect(s.green).toBe("suite 24/24");
+});
+
+test("parseState marks an unknown or empty stage as null, and reads an awaited stop", () => {
+  expect(parseState("stage: banana").stage).toBe(null);
+  expect(parseState("").stage).toBe(null);
+  const s = parseState("stage: spec\nawaiting: stop1\n");
+  expect(s.stage).toBe("spec");
+  expect(s.awaiting).toBe("stop1");
+});
+
+test("parseBoard reads task rows, ignoring header and separators", () => {
+  const md = ["# Board","| Task | Phase | Status | Covers |","|--|--|--|--|",
+    "| T001 | 1 | done | setup |","| T005 | 2 | judging | done command |","| T008 | 3 | parked | import |"].join("\n");
+  const b = parseBoard(md);
+  expect(b.length).toBe(3);
+  expect(b[0].id).toBe("T001");
+  expect(b[0].status).toBe("done");
+  expect(b[1].status).toBe("judging");
+  expect(b[1].label).toBe("done command");
+  expect(b[2].status).toBe("parked");
+});
+
+test("parseBoard ignores an empty or headers-only board", () => {
+  expect(parseBoard("").length).toBe(0);
+  expect(parseBoard("| Task | Phase | Status | Covers |\n|--|--|--|--|").length).toBe(0);
+});
+
+test("progressBar and statusMark", () => {
+  expect(progressBar(5, 8, 8)).toBe("█████░░░");
+  expect(statusMark("done").glyph).toBe("✓");
+  expect(statusMark("judging").glyph).toBe("◆");
+  expect(statusMark("parked").glyph).toBe("⚠");
+  expect(statusMark("todo").glyph).toBe("○");
+});
+
+test("voyageOf tags stages done/current/todo around the current stage", () => {
+  const v = parseVoyage("spec");
+  expect(v.map(s => s.state).join("")).toBe("ddctttt"); // interview,prd done · spec current · rest todo
+});
