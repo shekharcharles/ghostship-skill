@@ -1,5 +1,5 @@
 import { test, expect } from "claude-code/testing";
-import { parseState, parseBoard, progressBar, statusMark, voyageOf as parseVoyage } from "../hooks/state";
+import { parseState, parseBoard, progressBar, statusMark, voyageOf as parseVoyage, cmpVersion } from "../hooks/state";
 
 test("parseState reads stage, task, autonomy, phase and the in-flight fields", () => {
   const s = parseState(`autonomy: auto\nstage: build\nphase: 2/3\nactive task: T005\njudge: verifying\nred: done.test.mjs\ngreen: suite 24/24\n`);
@@ -47,4 +47,11 @@ test("progressBar and statusMark", () => {
 test("voyageOf tags stages done/current/todo around the current stage", () => {
   const v = parseVoyage("spec");
   expect(v.map(s => s.state).join("")).toBe("ddctttt"); // interview,prd done · spec current · rest todo
+});
+
+test("cmpVersion orders dotted versions", () => {
+  expect(cmpVersion("0.1.2","0.1.1")>0).toBe(true);
+  expect(cmpVersion("0.1.1","0.1.1")).toBe(0);
+  expect(cmpVersion("0.2.0","0.1.9")>0).toBe(true);
+  expect(cmpVersion("1.0.0","0.9.9")>0).toBe(true);
 });

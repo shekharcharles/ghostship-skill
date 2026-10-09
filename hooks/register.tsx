@@ -3,10 +3,11 @@ import type { EngineInterface, Register } from 'claude-code'
 
 import {
   VOYAGE, STOP_AFTER, parseState, parseBoard, voyageOf, curIndexOf,
-  progressBar, statusMark, type GhostshipState, type Task,
+  progressBar, statusMark, cmpVersion, type GhostshipState, type Task,
 } from './state.ts'
 import type { VoyageSnap } from '../types'
 import type { BandProps } from './band.tsx'
+import { GS } from './lib.ts'
 
 // Ghostship's two live surfaces: the band above the prompt (animated Client on the terminal, one SVG on the
 // desktop) and the voyage pane docked right. Both only reflect the skill's own files (docs/ghostship/STATE.md
@@ -18,6 +19,14 @@ const BOARD_FILE = 'docs/ghostship/BOARD.md'
 
 const snapAtom = atom({ plugin: 'ghostship', key: 'snap' } as const, null)
 const hiddenAtom = atom({ plugin: 'ghostship', key: 'hidden' } as const, false)
+const updateAtom = atom({ plugin: 'ghostship', key: 'update' } as const, null)
+
+// Self-update: where the plugin lives on GitHub and how it's installed. Overridable by env.
+const REPO = process.env.GHOSTSHIP_REPO || 'shekharcharles/ghostship-skill'
+const BRANCH = process.env.GHOSTSHIP_BRANCH || 'main'
+const MARKET = process.env.GHOSTSHIP_MARKET || 'ghostship'
+const PLUGIN = 'ghostship'
+const RAW_MANIFEST = `https://raw.githubusercontent.com/${REPO}/${BRANCH}/.claude-plugin/plugin.json`
 
 // Module variables reset on reload; the elapsed clock simply restarts, which is fine.
 let activeTask: string | null = null
@@ -81,6 +90,35 @@ async function setHidden($: EngineInterface, hidden: boolean): Promise<void> {
   try { await $.store.set('hidden', hidden) } catch { /* this session only */ }
 }
 
+// Compare the installed manifest version with the one published on GitHub; note when a newer one exists.
+async function checkUpdate($: EngineInterface): Promise<void> {
+  try {
+    const installed = JSON.parse(await $.fs.read(`${$.plugin.root}/.claude-plugin/plugin.json`)).version as string
+    const res = await $.process.run(['curl', '-fsSL', '-m', '8', RAW_MANIFEST])
+    if (res.exitCode !== 0 || !res.stdout) return
+    const latest = JSON.parse(res.stdout).version as string
+    const newer = !!installed && !!latest && cmpVersion(latest, installed) > 0
+    await update($, updateAtom, () => (newer ? { latest } : null))
+  } catch { /* no network or no curl — just don't offer an update */ }
+}
+
+// One-click update: refresh the marketplace and update the plugin, then ask for a restart to apply.
+async function doUpdate($: EngineInterface): Promise<void> {
+  try {
+    $.ui.toast('Ghostship: updating…')
+    await $.process.run(['claude', 'plugin', 'marketplace', 'update', MARKET], { timeoutMs: 120000 })
+    const r = await $.process.run(['claude', 'plugin', 'update', PLUGIN], { timeoutMs: 120000 })
+    if (r.exitCode === 0) {
+      await update($, updateAtom, () => null)
+      $.ui.toast('Ghostship updated — restart Claude Code to apply.')
+    } else {
+      $.ui.toast(`Ghostship update failed: ${(r.stderr || r.stdout || 'unknown').trim().slice(0, 160)}`)
+    }
+  } catch (e) {
+    $.ui.toast(`Ghostship update error: ${(e as Error).message}`)
+  }
+}
+
 export const register: Register = on => {
   on('session.start', async ($, e, next) => {
     const started = await next(e)
@@ -88,11 +126,14 @@ export const register: Register = on => {
     // Each step is guarded on its own, so one failure never stops the band from coming up.
     try { await $.command.register({ name: 'ghostship', description: 'Open the Ghostship voyage pane', immediate: true }) } catch { /* no command */ }
     try { await $.command.register({ name: 'ghostship-band', description: 'Ghostship: show or hide the voyage band', immediate: true }) } catch { /* no command */ }
+    try { await $.command.register({ name: 'ghostship-update', description: 'Ghostship: check for and install the latest version', immediate: true }) } catch { /* no command */ }
     try { const v = await $.store.get('hidden'); if (typeof v === 'boolean') await update($, hiddenAtom, () => v) } catch { /* nothing stored */ }
     try { await refreshStatus($) } catch { /* no status */ }
     try { await publish($) } catch { /* the render falls back to a direct read */ }
     try { if (e.surface === 'terminal' && await readState($)) void $.ui.open({ id: PANE, title: 'Ghostship' }) } catch { /* no pane */ }
     try { $.clock.every(1500, () => void publish($).catch(() => undefined)) } catch { /* no live refresh */ }
+    // Check GitHub for a newer version, in the background; if there is one, a one-click Update row appears.
+    void checkUpdate($).then(async () => { const u = await read($, updateAtom); if (u) $.ui.toast(`Ghostship ${u.latest} is available — click Update above the prompt, or /ghostship-update`) }).catch(() => undefined)
     return started
   })
 
@@ -102,6 +143,14 @@ export const register: Register = on => {
   on('command.run', { command: 'ghostship' }, async $ => {
     await $.ui.open({ id: PANE, title: 'Ghostship' })
     return { text: 'Ghostship voyage pane opened.' }
+  })
+
+  on('command.run', { command: 'ghostship-update' }, async $ => {
+    await checkUpdate($)
+    const u = await read($, updateAtom)
+    if (!u) return { text: 'Ghostship is up to date.' }
+    await doUpdate($)
+    return { text: `Updating Ghostship to ${u.latest}. Restart Claude Code to apply.` }
   })
 
   on('command.run', { command: 'ghostship-band' }, async $ => {
@@ -117,34 +166,48 @@ export const register: Register = on => {
     // there, interaction is pure chat (AskUserQuestion), the same as Claude anywhere.
     if (e.surface !== 'terminal') return drawn
     if (e.props.hasSurvey) return drawn
-    if (await read($, hiddenAtom)) return drawn
-    // Prefer the published snapshot (it carries the live elapsed); fall back to a direct read so the
-    // band shows even before the first publish, or if publishing ever failed.
-    let snap = await read($, snapAtom)
-    if (!snap || !snap.visible) {
-      const st = await readState($)
-      snap = st && st.stage ? snapFromState(st, -1) : null
-    }
-    if (!snap || !snap.visible) return drawn
-    const cols = Math.max(24, (e.props.bodyColumns || 80) - 3)
 
-    const { Box, Button, Client } = $.ui.resolve(e)
-    const props: BandProps = {
-      stages: snap.stages, curLabel: snap.curLabel, released: snap.released,
-      phase: snap.phase, task: snap.task, stop: snap.stop, awaiting: snap.awaiting, activeMs: snap.activeMs,
-    }
-    // Reserve a second row when the full voyage won't fit one line, so wrapped stages aren't clipped.
-    const est = 14 + snap.stages.reduce((n, s) => n + 3 + s.label.length, 0) + Math.max(0, snap.stages.length - 1) * 5 + 8 + (snap.task ? 12 : 0)
-    const rows = est > cols ? 2 : 1
-    return (
-      <Box flexDirection="column">
-        {drawn}
-        <Box key="gs-band" flexDirection="row">
-          <Client key="gs-band-c" module="./band.tsx" width={cols} height={rows} props={props} />
-          <Button key="gs-band-x" label="✕" plain dimColor role="dismiss" onPress={() => void setHidden($, true)} />
-        </Box>
+    const { Box, Button, Client, Text } = $.ui.resolve(e)
+
+    // An update notice with a one-click Update — shown whenever a newer version is published, even
+    // outside a project.
+    const upd = await read($, updateAtom)
+    const updateRow = upd ? (
+      <Box key="gs-upd" flexDirection="row">
+        <Text color={GS.amber} bold>{`⬆ Ghostship ${upd.latest} available `}</Text>
+        <Button key="gs-upd-go" label=" Update " role="primary" onPress={() => void doUpdate($)} />
+        <Button key="gs-upd-x" label=" ✕" plain dimColor role="dismiss" onPress={() => void update($, updateAtom, () => null)} />
       </Box>
-    )
+    ) : null
+
+    // The voyage band — only inside a project, and not hidden.
+    let band: unknown = null
+    if (!(await read($, hiddenAtom))) {
+      let snap = await read($, snapAtom)
+      if (!snap || !snap.visible) {
+        const st = await readState($)
+        snap = st && st.stage ? snapFromState(st, -1) : null
+      }
+      if (snap && snap.visible) {
+        const cols = Math.max(24, (e.props.bodyColumns || 80) - 3)
+        const props: BandProps = {
+          stages: snap.stages, curLabel: snap.curLabel, released: snap.released,
+          phase: snap.phase, task: snap.task, stop: snap.stop, awaiting: snap.awaiting, activeMs: snap.activeMs,
+        }
+        // Reserve a second row when the full voyage won't fit one line, so wrapped stages aren't clipped.
+        const est = 14 + snap.stages.reduce((n, s) => n + 3 + s.label.length, 0) + Math.max(0, snap.stages.length - 1) * 5 + 8 + (snap.task ? 12 : 0)
+        const rows = est > cols ? 2 : 1
+        band = (
+          <Box key="gs-band" flexDirection="row">
+            <Client key="gs-band-c" module="./band.tsx" width={cols} height={rows} props={props} />
+            <Button key="gs-band-x" label="✕" plain dimColor role="dismiss" onPress={() => void setHidden($, true)} />
+          </Box>
+        )
+      }
+    }
+
+    if (!updateRow && !band) return drawn
+    return <Box flexDirection="column">{drawn}{updateRow}{band}</Box>
   })
 
   // ---- the voyage pane, docked right ----

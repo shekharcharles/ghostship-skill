@@ -86,3 +86,14 @@ export function voyageOf(stage: StageKey | null): { key: StageKey; label: string
   const cur = curIndexOf(stage)
   return VOYAGE.map((s, i) => ({ ...s, state: i < cur ? 'd' : i === cur ? 'c' : 't' }))
 }
+
+/** Compare dotted versions: >0 if a is newer than b, <0 if older, 0 if equal. */
+export function cmpVersion(a: string, b: string): number {
+  const pa = String(a || '0').split('.').map(Number)
+  const pb = String(b || '0').split('.').map(Number)
+  for (let i = 0; i < 3; i++) {
+    const d = (pa[i] || 0) - (pb[i] || 0)
+    if (d) return d
+  }
+  return 0
+}
