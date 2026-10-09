@@ -21,6 +21,7 @@ const snapAtom = atom({ plugin: 'ghostship', key: 'snap' } as const, null)
 const hiddenAtom = atom({ plugin: 'ghostship', key: 'hidden' } as const, false)
 const updateAtom = atom({ plugin: 'ghostship', key: 'update' } as const, null)
 const spendAtom = atom({ plugin: 'ghostship', key: 'spend' } as const, null)
+const evidenceAtom = atom({ plugin: 'ghostship', key: 'evidence' } as const, [])
 
 // Self-update: where the plugin lives on GitHub and how it's installed. Overridable by env.
 const REPO = process.env.GHOSTSHIP_REPO || 'shekharcharles/ghostship-skill'
@@ -33,6 +34,7 @@ const RAW_MANIFEST = `https://raw.githubusercontent.com/${REPO}/${BRANCH}/.claud
 let activeTask: string | null = null
 let activeSince: number | null = null
 let publishedKey = ''
+let prevStatus: Record<string, string> = {}
 let installedVersion = ''
 
 // The plugin's own installed version, from its manifest — shown in the band and pane.
@@ -85,9 +87,24 @@ function buildSnap(st: GhostshipState, now: number): VoyageSnap {
   return snapFromState(st, activeSince !== null ? Math.max(0, now - activeSince) : -1)
 }
 
+// The build's verdict log: each time a task reaches a terminal status on the board, record it.
+async function trackEvidence($: EngineInterface, now: number): Promise<void> {
+  const board = await readBoard($)
+  if (!board.length) return
+  const first = Object.keys(prevStatus).length === 0
+  const adds: { task: string; verdict: 'pass' | 'fail' | 'parked'; at: number }[] = []
+  for (const t of board) {
+    const terminal = t.status === 'done' || t.status === 'merged' ? 'pass' : t.status === 'parked' ? 'parked' : null
+    if (!first && prevStatus[t.id] && prevStatus[t.id] !== t.status && terminal) adds.push({ task: t.id, verdict: terminal as 'pass' | 'parked', at: now })
+    prevStatus[t.id] = t.status
+  }
+  if (adds.length) await update($, evidenceAtom, (log: { task: string; verdict: 'pass' | 'fail' | 'parked'; at: number }[] = []) => [...log, ...adds].slice(-15))
+}
+
 async function publish($: EngineInterface): Promise<void> {
   const st = await readState($)
   const now = await $.clock.now()
+  try { await trackEvidence($, now) } catch { /* evidence is best-effort */ }
   const snap: VoyageSnap = st ? buildSnap(st, now) : { stages: [], curLabel: '', released: false, phase: null, task: null, stop: null, awaiting: false, activeMs: -1, visible: false }
   // Publish on change only; the live clock ticks in the Client between publishes.
   const key = JSON.stringify({ ...snap, activeMs: snap.activeMs >= 0 ? 'run' : 'none' })
@@ -236,6 +253,7 @@ export const register: Register = on => {
   on('ui.render', { component: 'Pane', requestId: PANE }, async ($, e) => {
     const { Box, Text } = $.ui.resolve(e)
     const spend = await read($, spendAtom)
+    const evidence = await read($, evidenceAtom)
     const st = await readState($)
     if (!st || !st.stage) {
       return <Box paddingX={1}><Text color="subtle">Not a Ghostship project yet. Run /ghostship new.</Text></Box>
@@ -305,6 +323,16 @@ export const register: Register = on => {
             {st.judge ? <Text color="claude" bold>{`◆ judge `}<Text dimColor>{st.judge}</Text></Text> : null}
             {st.red ? <Text color="error">{`red  ✗ `}<Text dimColor>{st.red}</Text></Text> : null}
             {st.green ? <Text color="success">{`green ✓ `}<Text dimColor>{st.green}</Text></Text> : null}
+          </Box>
+        ) : null}
+        {evidence && evidence.length ? (
+          <Box flexDirection="column">
+            {head('RECORDER', `${evidence.length} verdicts`)}
+            <Box flexWrap="wrap">
+              {evidence.slice(-6).map((v, i) => (
+                <Text key={`ev${i}`} color={v.verdict === 'pass' ? 'success' : 'warning'}>{`${v.verdict === 'pass' ? '✓' : '⚠'} ${v.task}  `}</Text>
+              ))}
+            </Box>
           </Box>
         ) : null}
         {spend ? (
