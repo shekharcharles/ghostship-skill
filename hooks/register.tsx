@@ -32,6 +32,12 @@ const RAW_MANIFEST = `https://raw.githubusercontent.com/${REPO}/${BRANCH}/.claud
 let activeTask: string | null = null
 let activeSince: number | null = null
 let publishedKey = ''
+let installedVersion = ''
+
+// The plugin's own installed version, from its manifest — shown in the band and pane.
+async function readVersion($: EngineInterface): Promise<void> {
+  try { installedVersion = (JSON.parse(await $.fs.read(`${$.plugin.root}/.claude-plugin/plugin.json`)).version as string) || '' } catch { /* unknown version */ }
+}
 
 type Fs = { fs: { read: (p: string) => Promise<string> } }
 
@@ -123,6 +129,7 @@ export const register: Register = on => {
   on('session.start', async ($, e, next) => {
     const started = await next(e)
     activeTask = null; activeSince = null; publishedKey = ''
+    try { await readVersion($) } catch { /* unknown version */ }
     // Each step is guarded on its own, so one failure never stops the band from coming up.
     try { await $.command.register({ name: 'ghostship', description: 'Open the Ghostship voyage pane', immediate: true }) } catch { /* no command */ }
     try { await $.command.register({ name: 'ghostship-band', description: 'Ghostship: show or hide the voyage band', immediate: true }) } catch { /* no command */ }
@@ -192,7 +199,7 @@ export const register: Register = on => {
         const cols = Math.max(24, (e.props.bodyColumns || 80) - 3)
         const props: BandProps = {
           stages: snap.stages, curLabel: snap.curLabel, released: snap.released,
-          phase: snap.phase, task: snap.task, stop: snap.stop, awaiting: snap.awaiting, activeMs: snap.activeMs,
+          phase: snap.phase, task: snap.task, stop: snap.stop, awaiting: snap.awaiting, activeMs: snap.activeMs, version: installedVersion,
         }
         // Reserve a second row when the full voyage won't fit one line, so wrapped stages aren't clipped.
         const est = 14 + snap.stages.reduce((n, s) => n + 3 + s.label.length, 0) + Math.max(0, snap.stages.length - 1) * 5 + 8 + (snap.task ? 12 : 0)
@@ -260,7 +267,7 @@ export const register: Register = on => {
     return (
       <Box flexDirection="column" gap={1} paddingX={1}>
         <Box justifyContent="space-between">
-          <Text color="claude" bold>⛴ GHOSTSHIP</Text>
+          <Text color="claude" bold>{installedVersion ? `⛴ GHOSTSHIP v${installedVersion}` : '⛴ GHOSTSHIP'}</Text>
           <Text color={st.awaiting ? 'warning' : 'claude'}>
             {st.awaiting ? '⏸ YOUR MOVE' : st.stage === 'done' ? '✓ RELEASED' : `● ${(st.stage || '').toUpperCase()}`}
           </Text>

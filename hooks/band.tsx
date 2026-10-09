@@ -15,6 +15,7 @@ export type BandProps = {
   stop: string | null
   awaiting: boolean
   activeMs: number
+  version: string
 }
 
 type BandState = { t: number; base: number; at: number }
@@ -45,7 +46,9 @@ const Band: ClientModule<BandProps, BandState> = (props, surface) => {
   const stop2Hot = props.awaiting && (props.curLabel === 'Release' || props.released)
   const stopMark = (hot: boolean) => <Text color={hot ? mix(GS.amber, '#fff2d9', pulse * 0.5) : GS.subtle} bold={hot}>{' ⏸'}</Text>
 
-  const items: RenderElement[] = [<Text key="b" color={GS.clay} bold>⛴ Ghostship</Text>, <Text key="bs" color={GS.subtle}>{'  '}</Text>]
+  const items: RenderElement[] = [<Text key="b" color={GS.clay} bold>⛴ Ghostship</Text>]
+  if (props.version) items.push(<Text key="ver" color={GS.subtle}>{` v${props.version}`}</Text>)
+  items.push(<Text key="bs" color={GS.subtle}>{'  '}</Text>)
   props.stages.forEach((s, i) => {
     const glyph = s.state === 'd' ? '✓' : s.state === 'c' ? '◆' : '○'
     items.push(
