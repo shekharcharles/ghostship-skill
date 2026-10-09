@@ -133,11 +133,14 @@ export const register: Register = on => {
       stages: snap.stages, curLabel: snap.curLabel, released: snap.released,
       phase: snap.phase, task: snap.task, stop: snap.stop, awaiting: snap.awaiting, activeMs: snap.activeMs,
     }
+    // Reserve a second row when the full voyage won't fit one line, so wrapped stages aren't clipped.
+    const est = 14 + snap.stages.reduce((n, s) => n + 3 + s.label.length, 0) + Math.max(0, snap.stages.length - 1) * 5 + 8 + (snap.task ? 12 : 0)
+    const rows = est > cols ? 2 : 1
     return (
       <Box flexDirection="column">
         {drawn}
         <Box key="gs-band" flexDirection="row">
-          <Client key="gs-band-c" module="./band.tsx" width={cols} height={1} props={props} />
+          <Client key="gs-band-c" module="./band.tsx" width={cols} height={rows} props={props} />
           <Button key="gs-band-x" label="✕" plain dimColor role="dismiss" onPress={() => void setHidden($, true)} />
         </Box>
       </Box>

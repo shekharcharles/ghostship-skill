@@ -1,6 +1,6 @@
 // Ghostship's terminal band: a Client surface module. It animates locally — the current stage breathes
-// and the active task's clock ticks — from the last snapshot the hooks published, so the hooks publish only
-// on change. Below ~118 columns it collapses to the essentials; it never wraps (truncate-end).
+// and the active task's clock ticks — from the last snapshot the hooks published. It ALWAYS shows the full
+// seven-stage voyage with the two STOPs marked, wrapping to a second line when the terminal is narrow.
 import type { ClientModule, RenderElement } from 'claude-code'
 
 import { GS, mix, clock } from './lib.ts'
@@ -27,7 +27,7 @@ const Band: ClientModule<BandProps, BandState> = (props, surface) => {
     surface.every(90, () => {
       const s = surface.state
       if (!s) return
-      const isNew = latest.activeMs !== s.base // a fresh figure restarts the local count
+      const isNew = latest.activeMs !== s.base
       surface.setState({ t: s.t + 1, base: latest.activeMs, at: isNew ? s.t + 1 : s.at })
     })
   }
@@ -38,43 +38,38 @@ const Band: ClientModule<BandProps, BandState> = (props, surface) => {
   const pulse = 0.5 + 0.5 * Math.sin(t * 0.13)
   const curColor = mix(GS.clay, GS.clayLit, pulse)
   const elapsed = props.activeMs >= 0 ? props.activeMs + Math.max(0, t - st.at) * 90 : -1
-  const compact = (surface.columns || 80) < 118
+  const width = Math.max(24, surface.columns || 80)
 
-  const line: RenderElement[] = [<Text key="b" color={GS.clay} bold>⛴ Ghostship</Text>]
+  // Which stop (if any) is waiting now: STOP 1 at the Spec stage, STOP 2 at Release.
+  const stop1Hot = props.awaiting && props.curLabel === 'Spec'
+  const stop2Hot = props.awaiting && (props.curLabel === 'Release' || props.released)
+  const stopMark = (hot: boolean) => <Text color={hot ? mix(GS.amber, '#fff2d9', pulse * 0.5) : GS.subtle} bold={hot}>{' ⏸'}</Text>
 
-  if (props.awaiting && props.stop) {
-    line.push(<Text key="s" color={GS.subtle}>{'  ·  '}</Text>)
-    line.push(<Text key="st" color={mix(GS.amber, '#fff2d9', pulse * 0.5)} bold>{`⏸ ${props.stop}`}</Text>)
-  } else if (compact) {
-    line.push(<Text key="s" color={GS.subtle}>{'  ·  '}</Text>)
-    line.push(<Text key="c" color={props.released ? GS.green : curColor} bold>{props.released ? '✓ Released' : `◆ ${props.curLabel}`}</Text>)
-    if (props.phase) line.push(<Text key="ph" color={GS.subtle}>{`  ${props.phase}`}</Text>)
-    if (props.task) {
-      line.push(<Text key="tk" dimColor>{`  · ${props.task}`}</Text>)
-      if (elapsed >= 0) line.push(<Text key="el" dimColor>{` ${clock(elapsed)}`}</Text>)
-    }
-  } else {
-    line.push(<Text key="s" color={GS.subtle}>{'   '}</Text>)
-    props.stages.forEach((s, i) => {
-      const glyph = s.state === 'd' ? '✓' : s.state === 'c' ? '◆' : '○'
-      line.push(
-        s.state === 'c'
-          ? <Text key={`v${i}`} color={curColor} bold>{glyph} {s.label}</Text>
-          : s.state === 'd'
-            ? <Text key={`v${i}`} color={GS.green} dimColor>{glyph} {s.label}</Text>
-            : <Text key={`v${i}`} color={GS.subtle}>{glyph} {s.label}</Text>,
-      )
-      if (i < props.stages.length - 1) line.push(<Text key={`sep${i}`} color={GS.subtle}>{'  ›  '}</Text>)
-    })
-    if (props.task) {
-      line.push(<Text key="tk" dimColor>{`     ${props.task}`}</Text>)
-      if (elapsed >= 0) line.push(<Text key="el" dimColor>{` · ${clock(elapsed)}`}</Text>)
-    }
+  const items: RenderElement[] = [<Text key="b" color={GS.clay} bold>⛴ Ghostship</Text>, <Text key="bs" color={GS.subtle}>{'  '}</Text>]
+  props.stages.forEach((s, i) => {
+    const glyph = s.state === 'd' ? '✓' : s.state === 'c' ? '◆' : '○'
+    items.push(
+      s.state === 'c'
+        ? <Text key={`v${i}`} color={curColor} bold>{glyph} {s.label}</Text>
+        : s.state === 'd'
+          ? <Text key={`v${i}`} color={GS.green} dimColor>{glyph} {s.label}</Text>
+          : <Text key={`v${i}`} color={GS.subtle}>{glyph} {s.label}</Text>,
+    )
+    if (s.label === 'Spec') items.push(<Text key="st1">{stopMark(stop1Hot)}</Text>)
+    if (s.label === 'Release') items.push(<Text key="st2">{stopMark(stop2Hot)}</Text>)
+    if (i < props.stages.length - 1) items.push(<Text key={`sp${i}`} color={GS.subtle}>{'  ›  '}</Text>)
+  })
+  if (props.task && !props.awaiting) {
+    items.push(<Text key="tk" color={GS.subtle}>{'     '}</Text>)
+    items.push(<Text key="tkv" dimColor>{props.task}</Text>)
+    if (elapsed >= 0) items.push(<Text key="el" dimColor>{` · ${clock(elapsed)}`}</Text>)
   }
 
+  // A fixed-width row with wrap lets the voyage flow onto a second line on a narrow terminal
+  // instead of collapsing or truncating — every stage stays visible.
   return (
-    <Box flexDirection="row">
-      <Text wrap="truncate-end">{line}</Text>
+    <Box width={width} flexWrap="wrap" flexDirection="row">
+      {items}
     </Box>
   )
 }
