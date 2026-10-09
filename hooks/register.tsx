@@ -7,7 +7,7 @@ import {
 } from './state.ts'
 import type { VoyageSnap } from '../types'
 import type { BandProps } from './band.tsx'
-import { GS } from './lib.ts'
+import { GS, fmtTokens } from './lib.ts'
 
 // Ghostship's two live surfaces: the band above the prompt (animated Client on the terminal, one SVG on the
 // desktop) and the voyage pane docked right. Both only reflect the skill's own files (docs/ghostship/STATE.md
@@ -20,6 +20,7 @@ const BOARD_FILE = 'docs/ghostship/BOARD.md'
 const snapAtom = atom({ plugin: 'ghostship', key: 'snap' } as const, null)
 const hiddenAtom = atom({ plugin: 'ghostship', key: 'hidden' } as const, false)
 const updateAtom = atom({ plugin: 'ghostship', key: 'update' } as const, null)
+const spendAtom = atom({ plugin: 'ghostship', key: 'spend' } as const, null)
 
 // Self-update: where the plugin lives on GitHub and how it's installed. Overridable by env.
 const REPO = process.env.GHOSTSHIP_REPO || 'shekharcharles/ghostship-skill'
@@ -37,6 +38,18 @@ let installedVersion = ''
 // The plugin's own installed version, from its manifest — shown in the band and pane.
 async function readVersion($: EngineInterface): Promise<void> {
   try { installedVersion = (JSON.parse(await $.fs.read(`${$.plugin.root}/.claude-plugin/plugin.json`)).version as string) || '' } catch { /* unknown version */ }
+}
+
+// Live local-model spend for the build: tokens, cost and context fill, from the session's own usage.
+function toSpend(u: any): { tokens: number; usd: number; ctxPct: number } | null {
+  if (!u) return null
+  const tokens = u.context?.tokens ?? 0
+  const win = u.context?.window ?? 0
+  const ctxPct = u.context?.percent ?? (win ? Math.round((tokens / win) * 100) : 0)
+  return { tokens, usd: u.cost?.usd ?? 0, ctxPct }
+}
+async function seedSpend($: EngineInterface): Promise<void> {
+  try { const u = await $.session.usage(); await update($, spendAtom, () => toSpend(u)) } catch { /* no usage */ }
 }
 
 type Fs = { fs: { read: (p: string) => Promise<string> } }
@@ -130,6 +143,7 @@ export const register: Register = on => {
     const started = await next(e)
     activeTask = null; activeSince = null; publishedKey = ''
     try { await readVersion($) } catch { /* unknown version */ }
+    try { await seedSpend($) } catch { /* no spend */ }
     // Each step is guarded on its own, so one failure never stops the band from coming up.
     try { await $.command.register({ name: 'ghostship', description: 'Open the Ghostship voyage pane', immediate: true }) } catch { /* no command */ }
     try { await $.command.register({ name: 'ghostship-band', description: 'Ghostship: show or hide the voyage band', immediate: true }) } catch { /* no command */ }
@@ -146,6 +160,7 @@ export const register: Register = on => {
 
   on('prompt.submit', async ($, e, next) => { await refreshStatus($); await publish($); return next(e) }).catch(($, e, next) => next(e))
   on('turn.complete', async ($, e, next) => { await refreshStatus($); await publish($); return next(e) }).catch(($, e, next) => next(e))
+  on('session.measure', async ($, e, next) => { const r = await next(e); try { await update($, spendAtom, () => toSpend(e as any)) } catch { /* ignore */ } return r }).catch(($, e, next) => next(e))
 
   on('command.run', { command: 'ghostship' }, async $ => {
     await $.ui.open({ id: PANE, title: 'Ghostship' })
@@ -220,6 +235,7 @@ export const register: Register = on => {
   // ---- the voyage pane, docked right ----
   on('ui.render', { component: 'Pane', requestId: PANE }, async ($, e) => {
     const { Box, Text } = $.ui.resolve(e)
+    const spend = await read($, spendAtom)
     const st = await readState($)
     if (!st || !st.stage) {
       return <Box paddingX={1}><Text color="subtle">Not a Ghostship project yet. Run /ghostship new.</Text></Box>
@@ -289,6 +305,17 @@ export const register: Register = on => {
             {st.judge ? <Text color="claude" bold>{`◆ judge `}<Text dimColor>{st.judge}</Text></Text> : null}
             {st.red ? <Text color="error">{`red  ✗ `}<Text dimColor>{st.red}</Text></Text> : null}
             {st.green ? <Text color="success">{`green ✓ `}<Text dimColor>{st.green}</Text></Text> : null}
+          </Box>
+        ) : null}
+        {spend ? (
+          <Box flexDirection="column">
+            {head('SPEND', spend.usd > 0 ? `$${spend.usd.toFixed(2)}` : 'local')}
+            <Box>
+              <Text color="subtle">{`tokens `}</Text>
+              <Text>{fmtTokens(spend.tokens)}</Text>
+              <Text color="subtle">{`   context `}</Text>
+              <Text color={spend.ctxPct >= 85 ? 'warning' : 'subtle'}>{`${spend.ctxPct}%`}</Text>
+            </Box>
           </Box>
         ) : null}
         <Box justifyContent="space-between">

@@ -96,3 +96,10 @@ export function svgText(
 export function pxOf(columns: number | undefined, fallback = 80, slack = 8): number {
   return Math.max(260, Math.min(1600, (columns || fallback) * 8 - slack))
 }
+
+/** Short token count: 1.2k, 3.4M. */
+export function fmtTokens(n: number): string {
+  if (n >= 1_000_000) return `${+(n / 1_000_000).toFixed(1)}M`
+  if (n >= 1_000) return `${+(n / 1_000).toFixed(1)}k`
+  return String(n | 0)
+}

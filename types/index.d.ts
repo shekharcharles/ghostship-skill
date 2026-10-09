@@ -14,6 +14,12 @@ export type VoyageSnap = {
 
 declare module 'claude-code' {
   interface PluginState {
-    ghostship: { snap: VoyageSnap | null; hidden: boolean; update: { latest: string } | null }
+    ghostship: {
+      snap: VoyageSnap | null
+      hidden: boolean
+      update: { latest: string } | null
+      spend: { tokens: number; usd: number; ctxPct: number } | null
+      evidence: { task: string; verdict: 'pass' | 'fail' | 'parked'; at: number }[]
+    }
   }
 }
