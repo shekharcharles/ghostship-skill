@@ -44,10 +44,19 @@ let activeSince: number | null = null
 let publishedKey = ''
 let prevStatus: Record<string, string> = {}
 let installedVersion = ''
+let branch = ''
+let ticks = 0
 
 // The plugin's own installed version, from its manifest — shown in the band and pane.
 async function versionOf($: EngineInterface): Promise<string> {
   try { return (JSON.parse(await $.fs.read(`${$.plugin.root}/.claude-plugin/plugin.json`)).version as string) || '' } catch { return '' }
+}
+// The git branch of the project, read every few seconds; the band shows it when there is one.
+async function readBranch($: EngineInterface): Promise<void> {
+  try {
+    const res = await $.process.run(['git', 'rev-parse', '--abbrev-ref', 'HEAD'], { timeoutMs: 2000 })
+    branch = res.exitCode === 0 ? res.stdout.trim() : ''
+  } catch { branch = '' }
 }
 async function readVersion($: EngineInterface): Promise<void> {
   installedVersion = await versionOf($)
@@ -205,7 +214,7 @@ export const register: Register = on => {
     try { await publish($) } catch { /* the render falls back to a direct read */ }
     try { if (e.surface === 'terminal') void $.ui.open({ id: PANE, title: 'Ghostship' }) } catch { /* no pane */ }
     // Live refresh: the snapshot and status line every 1.5 s, and a redraw of the band and panes every second.
-    try { $.clock.every(1500, () => { void publish($).catch(() => undefined); void refreshStatus($).catch(() => undefined) }) } catch { /* no live refresh */ }
+    try { $.clock.every(1500, () => { ticks += 1; if (ticks % 6 === 1) void readBranch($).catch(() => undefined); void publish($).catch(() => undefined); void refreshStatus($).catch(() => undefined) }) } catch { /* no live refresh */ }
     try { $.clock.every(1000, () => $.ui.invalidate('ui.render')) } catch { /* no redraw timer */ }
     // Check GitHub for a newer version, in the background; if there is one, a one-click Update row appears.
     void checkUpdate($).then(async () => { const u = await read($, updateAtom); if (u) $.ui.toast(`Ghostship ${u.latest} is available — click Update above the prompt, or /ghostship-update`) }).catch(() => undefined)
@@ -325,6 +334,7 @@ export const register: Register = on => {
 
     // The voyage band — only inside a project, and not hidden.
     let band: unknown = null
+    let waitRow: unknown = null
     if (!(await read($, hiddenAtom))) {
       let snap = await read($, snapAtom)
       if (!snap || !snap.visible) {
@@ -335,9 +345,9 @@ export const register: Register = on => {
         const cols = Math.max(24, (e.props.bodyColumns || 80) - 3)
         const props: BandProps = {
           stages: snap.stages, curLabel: snap.curLabel, released: snap.released,
-          phase: snap.phase, task: snap.task, stop: snap.stop, awaiting: snap.awaiting, activeMs: snap.activeMs, version: installedVersion,
+          phase: snap.phase, task: snap.task, stop: snap.stop, awaiting: snap.awaiting, activeMs: snap.activeMs, version: installedVersion, branch,
         }
-        // Drawn right here, not in a surface module: the band wraps to a second row by itself on a narrow terminal.
+        // Drawn right here, not in a surface module: the band fits one line, dropping the least important parts first.
         const t = Math.floor((await $.clock.now()) / 1000)
         band = (
           <Box key="gs-band" flexDirection="row">
@@ -345,11 +355,20 @@ export const register: Register = on => {
             <Button key="gs-band-x" label="✕" plain dimColor role="dismiss" onPress={() => void setHidden($, true)} />
           </Box>
         )
+        // A STOP is waiting on the owner: say so, with a button that opens the voyage pane.
+        if (snap.awaiting) {
+          waitRow = (
+            <Box key="gs-wait" flexDirection="row" paddingX={1} gap={2}>
+              <Text color={GS.amber} bold>{`⏸ ${snap.stop ?? 'waiting on you'}`}</Text>
+              <Button key="gs-wait-open" label=" open " hotkey="o" role="primary" onPress={() => void $.ui.open({ id: PANE, title: 'Ghostship' })} />
+            </Box>
+          )
+        }
       }
     }
 
-    if (!updateRow && !band) return drawn
-    return <Box flexDirection="column">{drawn}{updateRow}{band}</Box>
+    if (!updateRow && !band && !waitRow) return drawn
+    return <Box flexDirection="column">{drawn}{updateRow}{band}{waitRow}</Box>
   })
 
   // ---- the voyage pane, docked right ----
