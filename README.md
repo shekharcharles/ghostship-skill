@@ -1,4 +1,4 @@
-# Ghostship (skill edition)
+# Ghostship
 
 An autonomous software factory as a **Claude Code plugin** — not an app you `node install.mjs`. One orchestrator **skill** carries a project from idea to a released, test-backed build; **mods** (hooks) are added to enforce the process and show live progress.
 
@@ -70,7 +70,7 @@ The pane is tabbed, so you pick a view instead of scrolling one long list: **Ove
 - `types/index.d.ts` — the `$.state` contract
 - `tests/` — `claude plugin test` suites
 
-Status: **0.9.6**, in active development. The earlier engine edition lives at github.com/shekharcharles/ghostship.
+Status: **0.9.7**, in active development. The earlier engine edition lives at github.com/shekharcharles/ghostship.
 
 ## Credits
 
