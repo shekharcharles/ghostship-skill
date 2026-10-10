@@ -785,7 +785,7 @@ export const register: Register = on => {
       // Named for its role and task, with the task's title from BOARD.md, so the list says what it is building.
       const id = taskOf(`${e.name ?? ''} ${e.description}`)
       const board = id ? parseBoard((await tryRead($, BOARD_FILE)) ?? '') : []
-      const title = board.find(t => t.id === id)?.label
+      const title = board.find(t => t.id === id)?.name || board.find(t => t.id === id)?.label
       const shown = agentLabel(role, id, title, retry, e.description || e.name || 'Agent')
       const startMs = await $.clock.now()
       running.set(result.agentId, { name: shown, label: 'Getting started', startMs })
