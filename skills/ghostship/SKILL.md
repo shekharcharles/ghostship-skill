@@ -103,8 +103,8 @@ Other files: `PRD.md` · `spec.md` · `plan.md` (the pipeline artifacts) and `ta
 `/ghostship <command>` (no command → list these and ask which):
 
 - **new** — a brand-new product. Start at the interview.
-- **adopt** — existing code: read it, then interview, then the same pipeline.
-- **resume** — read `STATE.md` and continue from the current stage. Never redo an approved stage.
+- **adopt** — existing code: read it, then interview, then the same pipeline. **A project on the engine edition** (it has `.ghostship/state/state.json` and no `docs/ghostship/STATE.md`) is moved, not interviewed again: first stop its runner (`node .ghostship/core/runtime/gs.mjs autopilot stop`), then run `node <this skill's base directory>/scripts/from-engine.mjs` in the project. It writes `docs/ghostship/` (STATE, BOARD, EVIDENCE, and DECISIONS for any task the owner retired that others wait on), keeps the approved PRD and acceptance checks where they are (STATE.md names them; they stay approved, STOP 1 is passed), and takes the engine's hooks out of `.claude/settings.json`. Then go on as **resume**, reading the task files the engine wrote under `tasks/`. Never run `gs` again in that project.
+- **resume** — read `STATE.md` and continue from the current stage. Never redo an approved stage. No `docs/ghostship/STATE.md` but a `.ghostship/` folder means the engine edition: move it as in **adopt** first; never fall back to its `gs` commands.
 - **status** — report stage, active task, what waits for the owner.
 - **add** / **change** — a new feature / a change to approved behaviour: reopen only the affected artifact (e.g. `spec.md`), re-approve it, rebuild only what changed.
 - **release** — assemble, verify, and run STOP 2.

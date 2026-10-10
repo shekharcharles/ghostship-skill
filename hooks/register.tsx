@@ -196,8 +196,13 @@ async function trackEvidence($: EngineInterface, now: number): Promise<void> {
   if (adds.length) await update($, evidenceAtom, (log: { task: string; verdict: 'pass' | 'fail' | 'parked'; at: number }[] = []) => [...log, ...adds].slice(-15))
 }
 
+// A project still on the engine edition keeps its state in .ghostship/, not docs/ghostship/: the views say how to move it over.
+let legacyEngine = false
+const LEGACY_HINT = 'this project runs the old Ghostship engine · type /ghostship:ghostship adopt to move it to this plugin'
+
 async function publish($: EngineInterface): Promise<void> {
   const st = await readState($)
+  legacyEngine = !st && (await tryList($)).some(f => f.name === '.ghostship')
   const now = await $.clock.now()
   try { await trackEvidence($, now) } catch { /* evidence is best-effort */ }
   const snap: VoyageSnap = st ? buildSnap(st, now) : { stages: [], curLabel: '', released: false, phase: null, task: null, stop: null, awaiting: false, activeMs: -1, visible: false }
@@ -693,7 +698,7 @@ export const register: Register = (on, options) => {
         : (
           <Box key="gs-idle" flexDirection="row" gap={3} flexGrow={1}>
             <Box flexShrink={0}><Text color={GS.clay} bold>{`Ghostship${installedVersion ? ` v${installedVersion}` : ''}`}</Text></Box>
-            <Text dimColor wrap="truncate-end">no Ghostship project in this folder · type /ghostship new to start a project</Text>
+            <Text dimColor wrap="truncate-end">{legacyEngine ? LEGACY_HINT : 'no Ghostship project in this folder · type /ghostship new to start a project'}</Text>
             {branch ? <Box flexShrink={0}><Text color={GS.subtle}>{`⎇ ${branch}`}</Text></Box> : null}
           </Box>
         )
@@ -861,7 +866,7 @@ export const register: Register = (on, options) => {
 
     // Progress: tasks done once there is a board; before that, how far along the seven stages the voyage is.
     const progress = !inProject
-      ? [head('PROGRESS'), <Text key="pn" dimColor>No Ghostship project in this folder yet. Type /ghostship new to start a project.</Text>]
+      ? [head('PROGRESS'), <Text key="pn" color={legacyEngine ? 'warning' : undefined} dimColor={!legacyEngine} wrap="wrap">{legacyEngine ? 'This project still runs the old Ghostship engine (its state is in .ghostship/). Type /ghostship:ghostship adopt to move it to this plugin: the progress, board and approvals carry over.' : 'No Ghostship project in this folder yet. Type /ghostship new to start a project.'}</Text>]
       : [
           head('PROGRESS', board.length
             ? `${done}/${board.length} tasks · ${Math.round((done / board.length) * 100)}%`

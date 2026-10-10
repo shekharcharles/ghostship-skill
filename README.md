@@ -52,6 +52,10 @@ Between STOP 1 and STOP 2 nothing waits on you. The skill parks anything that ne
 
 The pane reads the project's own files (`package.json` or `README.md`, `docs/ghostship/STATE.md`, `BOARD.md`, `EVIDENCE.md`, the top-level folder), so it shows something useful in any project.
 
+## Moving a project from the engine edition
+
+A project the earlier engine edition ran (a `.ghostship/` folder, the `gs` commands, the Bridge pane) moves over with `/ghostship:ghostship adopt`. The skill stops the old runner and runs `skills/ghostship/scripts/from-engine.mjs`, which writes `docs/ghostship/` from `.ghostship/state/state.json`: the stage, the board (merged tasks done, retired ones parked, and the tasks waiting on them parked with a decision for STOP 2), the evidence, and links to the approved PRD and acceptance checks, which stay approved. It takes the engine's hooks and status line out of `.claude/settings.json` (a backup is kept beside it) and leaves `.ghostship/` in place. Until then the band and the pane say the project still runs the old engine.
+
 ## Layout
 
 - `.claude-plugin/` — plugin and marketplace manifests
@@ -62,4 +66,4 @@ The pane reads the project's own files (`package.json` or `README.md`, `docs/gho
 - `types/index.d.ts` — the `$.state` contract
 - `tests/` — `claude plugin test` suites
 
-Status: **0.6.5**, in active development. The earlier engine edition lives at github.com/shekharcharles/ghostship.
+Status: **0.7.0**, in active development. The earlier engine edition lives at github.com/shekharcharles/ghostship.
