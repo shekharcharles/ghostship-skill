@@ -94,7 +94,7 @@ function doingOf(live: Live): string | null {
   switch (live.phase) {
     case 'requesting': return 'Waiting for the model'
     case 'thinking': {
-      const snippet = thoughtOf(live.thought, 70)
+      const snippet = thoughtOf(live.thought, THOUGHT_CHARS)
       return snippet ? `Thinking: ${snippet}` : live.lastAction ?? 'Waiting for the model'
     }
     case 'writing': return `Writing the reply · ${live.replyWords} word${live.replyWords === 1 ? '' : 's'}`
@@ -116,6 +116,17 @@ let ticks = 0
 // shortcut: an agent that never reports its stop keeps its row until the session restarts; sweep by age if that shows up.
 const running = new Map<string, Running>()
 const MAX_AGENT_ROWS = 4
+// The thought shown in full: up to this many characters, wrapped onto the band's rows rather than cut.
+const THOUGHT_CHARS = 400
+// A line cut into rows of `width` characters, the newest `max` rows kept (a leading … when more is cut).
+function rowsOf(text: string, width: number, max: number): string[] {
+  const all: string[] = []
+  for (let i = 0; i < text.length; i += width) all.push(text.slice(i, i + width))
+  if (all.length <= max) return all
+  const kept = all.slice(all.length - max)
+  kept[0] = `…${kept[0]!.slice(1)}`
+  return kept
+}
 // Rows kept for other mods' bands drawn above ours (What's Agent Doing's box is 3).
 const OTHER_MOD_ROWS = 4
 // A verdict shows on the band this long after it lands; the spinner's frames, one a second.
@@ -902,6 +913,7 @@ export const register: Register = on => {
         )
       const rows: unknown[] = [<Box key="gs-head" flexDirection="row" justifyContent="space-between">{head}{hide}</Box>]
       let room = budget - used - (bordered ? 3 : 1)
+      const bandWidth = Math.max(24, (e.props.bodyColumns || 80) - 10)
 
       // The usage line: context, the cache countdown with ↻ cache to refresh it, the 5-hour and weekly limits.
       if (room >= 1) {
@@ -936,12 +948,13 @@ export const register: Register = on => {
       // What the main thread is doing right now, one line under the usage, while a turn runs: thinking, writing, a call, a tool.
       const doing = working ? doingOf(liveOf('main')) : null
       if (doing && room >= 1) {
-        rows.push(
-          <Box key="gs-think" flexDirection="row">
-            <Text color={GS.mist} wrap="truncate-end">{`${SPIN[Math.floor(nowMs / SPIN_MS) % SPIN.length]} Main thread › ${doing}`}</Text>
+        const lines = rowsOf(`Main thread › ${doing}`, bandWidth, Math.min(3, room))
+        lines.forEach((line, i) => rows.push(
+          <Box key={`gs-think${i}`} flexDirection="row">
+            <Text color={GS.mist} wrap="truncate-end">{i === 0 ? `${SPIN[Math.floor(nowMs / SPIN_MS) % SPIN.length]} ${line}` : `  ${line}`}</Text>
           </Box>,
-        )
-        room -= 1
+        ))
+        room -= lines.length
       }
 
       // A STOP waiting on the owner stays until it is answered; otherwise a verdict shows for 20 seconds after it lands.
@@ -972,17 +985,23 @@ export const register: Register = on => {
       // Each running agent: its name, then what it is doing this moment (its own thinking, writing or tool call).
       const all = [...running.entries()]
       const fit = fitAgents(all.length, room, MAX_AGENT_ROWS)
-      all.slice(all.length - fit.shown).forEach(([id, a], i) => {
+      const shown = all.slice(all.length - fit.shown)
+      const share = Math.max(1, Math.min(3, Math.floor(room / Math.max(1, shown.length))))
+      shown.forEach(([id, a], i) => {
         const role = roleOf(a.name)
         const color = role === 'judge' ? GS.amber : role === 'builder' ? GS.clay : GS.mist
         const doing = doingOf(liveOf(id)) ?? a.label
-        rows.push(
-          <Box key={`gs-ag${i}`} flexDirection="row">
-            <Box flexShrink={0}><Text color={color}>{`${SPIN[(t + i) % SPIN.length]} `}</Text><Text bold>{a.name.slice(0, 40)}</Text></Box>
-            <Text wrap="truncate-end">{` › ${doing}`}</Text>
-            <Box flexShrink={0}><Text dimColor>{`  ${clock(nowMs - a.startMs)}`}</Text></Box>
+        const lines = rowsOf(` › ${doing}`, bandWidth - a.name.slice(0, 40).length - 4, share)
+        lines.forEach((line, j) => rows.push(
+          <Box key={`gs-ag${i}-${j}`} flexDirection="row">
+            {j === 0
+              ? <Box flexShrink={0}><Text color={color}>{`${SPIN[(t + i) % SPIN.length]} `}</Text><Text bold>{a.name.slice(0, 40)}</Text></Box>
+              : <Box flexShrink={0}><Text>{'    '}</Text></Box>}
+            <Text wrap="truncate-end">{line}</Text>
+            {j === 0 ? <Box flexShrink={0}><Text dimColor>{`  ${clock(nowMs - a.startMs)}`}</Text></Box> : null}
           </Box>,
-        )
+        ))
+        room -= lines.length
       })
       if (fit.more > 0) rows.push(<Text key="gs-ag-more" dimColor>{`… ${fit.more} more agent${fit.more === 1 ? '' : 's'}`}</Text>)
 
@@ -1215,7 +1234,7 @@ export const register: Register = on => {
                   <Box flexShrink={0}><Text bold color={a.usd > 0 ? 'claude' : 'subtle'}>{money(a.usd)}</Text></Box>
                 </Box>
                 {a.running && doingOf(liveOf(a.id)) ? (
-                  <Text key={`pth-${a.id}`} color={GS.mist} wrap="truncate-end">{`   ${doingOf(liveOf(a.id))}`}</Text>
+                  <Text key={`pth-${a.id}`} color={GS.mist} wrap="wrap">{`   ${doingOf(liveOf(a.id))}`}</Text>
                 ) : null}
                 <Box flexDirection="row" justifyContent="space-between">
                   <Text dimColor wrap="truncate-end">{`  ${a.id === 'main' ? (working ? `working${doingOf(liveOf('main')) ? ` › ${doingOf(liveOf('main'))}` : '…'}` : 'this session, idle') : a.running ? `running ${clock(nowMs - a.startMs)}${live ? ` › ${live.label}` : ''}` : `done in ${clock((a.endMs ?? nowMs) - a.startMs)}`}`}</Text>
