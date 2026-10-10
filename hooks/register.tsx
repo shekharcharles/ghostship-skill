@@ -49,6 +49,13 @@ const projectUsdAtom = atom({ plugin: 'ghostship', key: 'projectUsd' } as const,
 // Which model each subagent role runs on; in $.store too, so it holds across sessions.
 // Each task's acceptance check (its gate command), read from tasks/T###*.md; in $.state so it is read once per change.
 const gatesAtom = atom({ plugin: 'ghostship', key: 'gates' } as const, {} as Record<string, string>)
+// Control: the owner can take control back (every agent action is refused until they give it back). The pane's top line shows the
+// latest event, and the ACTIONS card the recent actions of the main thread and every agent.
+const pausedAtom = atom({ plugin: 'ghostship', key: 'paused' } as const, false)
+const eventAtom = atom({ plugin: 'ghostship', key: 'paneEvent' } as const, null as { text: string; tone: 'bad' | 'warn' | 'ok'; at: number } | null)
+const actionsAtom = atom({ plugin: 'ghostship', key: 'actions' } as const, [] as { id: string; label: string; status: 'run' | 'ok' | 'refused'; at: number }[])
+let actionSeq = 0
+const PAUSED_REFUSED = 'The owner took control back: nothing is done until they give control back. Stop here and wait; do not continue the task.'
 const paneTabAtom = atom({ plugin: 'ghostship', key: 'paneTab' } as const, 'overview')
 const routingAtom = atom({ plugin: 'ghostship', key: 'routing' } as const, DEFAULT_ROUTING)
 
@@ -282,7 +289,7 @@ let gatesKey = ''
 // Reads each task file's gate line when the set of task files changes; a redraw never re-reads them.
 async function loadGates($: EngineInterface): Promise<void> {
   let names: string[] = []
-  try { names = (await $.fs.list('tasks')).filter(f => f.kind !== 'directory' && /^T\d+.*\.md$/.test(f.name)).map(f => f.name).sort() } catch { return }
+  try { names = (await $.fs.list('tasks')).filter(f => f.kind !== 'dir' && /^T\d+.*\.md$/.test(f.name)).map(f => f.name).sort() } catch { return }
   const key = names.join('|')
   if (key === gatesKey) return
   const gates: Record<string, string> = {}
@@ -517,6 +524,35 @@ async function setKeepWarm($: EngineInterface, hours: number): Promise<void> {
   $.ui.toast(hours ? `Keep warm on for ${hours}h: the cache is refreshed before it goes cold; each refresh is one small request.` : 'Keep warm off.')
 }
 
+// The one line at the top of the pane: the latest event, and what it means.
+async function noteEvent($: EngineInterface, text: string, tone: 'bad' | 'warn' | 'ok'): Promise<void> {
+  const at = await $.clock.now()
+  await update($, eventAtom, () => ({ text, tone, at }))
+}
+
+// One entry in the ACTIONS card: it runs, then ends as done or refused.
+async function startAction($: EngineInterface, id: string, label: string): Promise<void> {
+  const at = await $.clock.now()
+  const list = await read($, actionsAtom)
+  await update($, actionsAtom, () => [...list, { id, label, status: 'run' as const, at }].slice(-12))
+}
+async function endAction($: EngineInterface, id: string, status: 'ok' | 'refused'): Promise<void> {
+  const list = await read($, actionsAtom)
+  await update($, actionsAtom, () => list.map(a => (a.id === id ? { ...a, status } : a)))
+}
+
+// Take control back, or give it back. Giving it back puts the resume command in the prompt for the owner to send.
+async function setPaused($: EngineInterface, paused: boolean): Promise<void> {
+  await update($, pausedAtom, () => paused)
+  if (paused) {
+    await noteEvent($, 'Control is taken back: every agent action is refused until you give it back.', 'warn')
+    $.ui.toast('Control taken back: the agents stop acting. Give it back to continue the build.')
+  } else {
+    await noteEvent($, 'Control is given back: send /ghostship:ghostship resume to continue the build.', 'ok')
+    await $.prompt.fill({ text: `/${SKILL_COMMAND} resume` }).catch(() => undefined)
+  }
+}
+
 // The project's spend: each session's cost under its id, kept in $.store by project folder, so the band shows every session together.
 let projectKey = ''
 let sessionId = ''
@@ -678,10 +714,12 @@ export const register: Register = on => {
 
   on('tool.call', { tool: 'AskUserQuestion' }, async ($, e, next) => {
     if (!(await buildStatus($)).unattended) return next(e)
+    await noteEvent($, 'Refused a question: the build runs unattended, so the item is parked for the release report.', 'bad')
     return { deny: ASK_REFUSED }
   }).catch(($, e, next) => next(e))
 
   on('classic.Stop', async ($, e, next) => {
+    if (await read($, pausedAtom)) return next(e)
     const b = await buildStatus($)
     if (!b.unattended || !b.left.length) { nudges = 0; return next(e) }
     if (b.progress !== lastProgress) { lastProgress = b.progress; nudges = 0 }
@@ -728,17 +766,32 @@ export const register: Register = on => {
   }).catch(($, e, next) => next(e))
 
   on('tool.call', async ($, e, next) => {
+    const id = `a${++actionSeq}`
+    const step = activityOf(e.tool, e as unknown as Record<string, unknown>)
+    const who = e.agentId !== undefined ? (running.get(e.agentId)?.name.split(' · ')[0] ?? 'Agent') : 'Main thread'
+    // Control taken back: no action goes through, from the main thread or any agent.
+    if (await read($, pausedAtom)) {
+      await noteEvent($, `Refused ${who}: ${step}. Control is taken back.`, 'bad')
+      await startAction($, id, `${who}: ${step}`)
+      await endAction($, id, 'refused')
+      return { deny: PAUSED_REFUSED }
+    }
     // A delete that could remove more than it names is refused at once: the agent gets the reason and goes on, nothing waits.
     if (e.tool === 'Bash' && riskyDelete(String((e as unknown as { input?: { command?: unknown } }).input?.command ?? ''))) {
+      await noteEvent($, `Refused ${who}: a delete that could remove more than it names.`, 'bad')
+      await startAction($, id, `${who}: ${step}`)
+      await endAction($, id, 'refused')
       return { deny: DELETE_REFUSED }
     }
-    const step = activityOf(e.tool, e as unknown as Record<string, unknown>)
     const live = liveOf(e.agentId ?? 'main')
     live.phase = 'tool'
     live.composing = null
     live.lastAction = step
     if (e.agentId !== undefined) { const a = running.get(e.agentId); if (a) a.label = step }
-    return next(e)
+    await startAction($, id, `${who}: ${step}`)
+    const r = await next(e)
+    await endAction($, id, (r as { deny?: unknown }).deny !== undefined ? 'refused' : 'ok')
+    return r
   }).catch(($, e, next) => next(e))
 
   on('classic.SubagentStop', async ($, e, next) => {
@@ -809,6 +862,7 @@ export const register: Register = on => {
     if (await read($, panelOpenAtom)) {
       const pst = await readState($)
       const ttlChoice = (await read($, cacheChoiceAtom)) ?? (await read($, cacheTtlAtom)) ?? '1h'
+      const paused = await read($, pausedAtom)
       const pIn = !!pst?.stage
       const pBoard = pIn ? await readBoard($) : []
       const pDone = pBoard.filter(t => t.status === 'done' || t.status === 'merged').length
@@ -867,6 +921,10 @@ export const register: Register = on => {
         setting('p-band', 'Band', 'the voyage line above the prompt', !hidden, [
           chip('p-b-on', 'On', !hidden, () => void setHidden($, false)),
           chip('p-b-off', 'Off', hidden, () => void setHidden($, true)),
+        ]),
+        setting('p-ctl', 'Control', 'whether the agents may act', !paused, [
+          chip('p-c-run', 'Running', !paused, () => void setPaused($, false)),
+          chip('p-c-hold', 'Taken back', paused, () => void setPaused($, true)),
         ]),
         setting('p-pane', 'Pane', 'the Ghostship pane on the right', paneUp, [
           chip('p-p-open', 'Open', paneUp, () => void setPane($, true)),
@@ -1081,6 +1139,9 @@ export const register: Register = on => {
     const projectUsd = await read($, projectUsdAtom)
     const keep = await read($, keepWarmAtom)
     const refresh = await read($, lastRefreshAtom)
+    const paused = await read($, pausedAtom)
+    const pevent = await read($, eventAtom)
+    const actions = await read($, actionsAtom)
     const ttl = await ttlNow($)
     const cacheLeftMs = cacheLeft(nowMs, await read($, lastReplyAtAtom), ttl)
     const money = (v: number | null | undefined) => (v == null ? '—' : `$${v.toFixed(2)}`)
@@ -1096,10 +1157,10 @@ export const register: Register = on => {
     // A card heading as ruflo draws it: amber block glyphs, the label in bold amber, and a rule of ═ to the right.
     const head = (label: string, right?: string) => (
       <Box key={`h-${label}`} flexDirection="row" gap={1}>
-        <Text color={RUFLO.amber} bold>▐█▌</Text>
-        <Text color={RUFLO.amber} bold>{label}</Text>
-        <Box flexGrow={1}><Text color={RUFLO.amber} wrap="truncate-end">{'═'.repeat(200)}</Text></Box>
-        {right ? <Text color={RUFLO.grey}>{right}</Text> : null}
+        <Box flexShrink={0}><Text color={RUFLO.amber} bold>▐█▌</Text></Box>
+        <Box flexShrink={0}><Text color={RUFLO.amber} bold wrap="truncate-end">{label}</Text></Box>
+        <Box flexGrow={1} flexShrink={1} minWidth={0}><Text color={RUFLO.amber} wrap="truncate-end">{'═'.repeat(200)}</Text></Box>
+        {right ? <Box flexShrink={0}><Text color={RUFLO.grey}>{right}</Text></Box> : null}
       </Box>
     )
     // A section header that folds: ▾ open, ▸ folded.
@@ -1232,6 +1293,7 @@ export const register: Register = on => {
 
     return (
       <Box flexDirection="column" gap={cards ? 0 : 1}>
+        {pevent ? <Text key="ev-top" bold color={pevent.tone === 'bad' ? 'error' : pevent.tone === 'warn' ? 'warning' : 'success'} wrap="truncate-end">{pevent.text}</Text> : null}
         {tabBar}
         {tab === 'overview' && section('s-banner', edge, [
           cards && cols >= WORDMARK_WIDTH + 8
@@ -1247,6 +1309,29 @@ export const register: Register = on => {
             : <Text key="about" dimColor wrap="wrap">No description yet: add one to package.json, or open the README with a one-line pitch.</Text>,
         ])}
         {tab === 'overview' && section('s-progress', edge, progress)}
+        {tab === 'overview' && section('s-control', paused ? 'warning' : 'subtle', [
+          head('CONTROL', paused ? 'taken back' : 'running'),
+          <Text key="c-txt" dimColor wrap="wrap">{paused ? 'Every agent action is refused until you give control back. Nothing is lost: the build carries on from its files.' : 'The agents act on their own between your stops. Take control back to stop every action at once.'}</Text>,
+          <Box key="c-btn" flexDirection="row" justifyContent="flex-end">
+            {paused
+              ? <Button key="c-give" label=" Give control back " variant="primary" onPress={() => void setPaused($, false)} />
+              : <Button key="c-take" label=" Take back control " variant="secondary" onPress={() => void setPaused($, true)} />}
+          </Box>,
+        ])}
+        {tab === 'overview' && actions && actions.length ? section('s-actions', 'subtle', [
+          head('ACTIONS', `${actions.length} recent`),
+          ...[...actions].reverse().slice(0, 8).map((a, i) => (
+            <Box key={`ac-${a.id}`} flexDirection="row" justifyContent="space-between" gap={1}>
+              <Box flexShrink={1} minWidth={0}>
+                {a.status === 'run'
+                  ? <Text color={GS.green}>{`${SPIN[(Math.floor(nowMs / SPIN_MS) + i) % SPIN.length]} `}</Text>
+                  : a.status === 'ok' ? <Text color={GS.green}>✓ </Text> : <Text color="error">✗ </Text>}
+                <Text wrap="truncate-end">{a.label}</Text>
+              </Box>
+              <Box flexShrink={0}><Text dimColor>{a.status === 'refused' ? 'refused' : `${span(nowMs - a.at)} ago`}</Text></Box>
+            </Box>
+          )),
+        ]) : null}
         {tab === 'overview' && inProject ? section('s-voyage', 'subtle', [head('VOYAGE', st!.phase ? `PHASE ${st!.phase}` : undefined), ...voyageRows]) : null}
         {tab === 'agents' && ledger.length ? section('s-agents', 'claude', [
           head('AGENTS', `${ledger.filter(a => a.running).length} running · ${ledger.filter(a => a.id !== 'main').length} spawned`),

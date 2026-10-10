@@ -38,6 +38,9 @@ declare module 'claude-code' {
       cacheTtl: '5m' | '1h' | null       // the cache lifetime the engine last reported (a model switch carries it)
       cacheChoice: '5m' | '1h' | null     // the cache lifetime the owner picked in the ◆ Ghostship menu (overrides the above)
       gates: Record<string, string>          // each task's acceptance check (its gate command), keyed by task id
+      paused: boolean                        // the owner took control back: every agent action is refused until they give it back
+      paneEvent: { text: string; tone: 'bad' | 'warn' | 'ok'; at: number } | null  // the latest event, the pane's top line
+      actions: { id: string; label: string; status: 'run' | 'ok' | 'refused'; at: number }[]  // recent actions, newest last
       paneTab: 'overview' | 'plan' | 'agents' | 'cost' | 'files'  // the pane's open tab
       boardOpen: boolean      // the voyage pane's BOARD section is expanded
       recorderOpen: boolean    // the voyage pane's RECORDER section is expanded
