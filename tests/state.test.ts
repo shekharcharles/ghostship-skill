@@ -143,3 +143,11 @@ test("STATE.md's own wording for the live-test fields is read", () => {
   expect(lab.labUrl).toBe("http://localhost:3000");
 });
 
+import { provenOf } from "../hooks/state.ts";
+
+test("a pass counts as built only when it ran end to end", () => {
+  expect(provenOf("e2e: curl /api/scan → 3 findings, 1 with proof")).toBe(true);
+  expect(provenOf("unit tests pass")).toBe(false);
+  expect(provenOf("e2e:")).toBe(false);
+});
+

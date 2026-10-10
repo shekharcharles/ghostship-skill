@@ -185,3 +185,8 @@ export function gateOf(text: string): string | null {
   const v = m?.[2]?.replace(/^`|`$/g, '').trim()
   return v && v !== '[]' ? v : null
 }
+
+/** Whether a verdict's note carries an end-to-end run (`e2e: <command> → <what it showed>`): the only proof that a feature is built. */
+export function provenOf(note: string): boolean {
+  return /\be2e\s*:\s*\S/i.test(note)
+}

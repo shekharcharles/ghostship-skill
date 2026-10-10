@@ -51,6 +51,7 @@ interview ─▶ PRD.md ─▶ spec.md ─(STOP 1)─▶ plan.md ─▶ tasks/T#
    - **Traceability:** one row per criterion — `A#` · the task(s) that cover it · its check · the result (`pass`, or `parked` with the reason). Every criterion appears; none is silently missing.
    - **Shipped / parked:** what works now, and each parked task with its reason.
    - **Live proof:** the live run against the lab, its date, the cost and the findings it reported against the lab's known list. A capability without a live pass is listed as unproven.
+   - **Built, not just done:** every task, each `built` with its `e2e:` line, or listed as `unproven` with what is missing. A release with unproven tasks is not green: report it, do not tag it.
    - **Release gate:** full suite green, every criterion `pass` or `parked`, README/docs describe what shipped. Fix what you can; a green gate ships automatically, a red gate does not ship and is reported with what is blocking it.
    - **Decisions:** every item in `DECISIONS.md`, each with its options and your recommendation.
    Then **tag the release and report** — do not ask the owner to approve it. The report lists every auto-applied decision (recommended option taken, with its reason) and every parked task. A decision that rewrote an acceptance criterion is called out at the top and was routed through `/ghostship change` (re-approve that criterion, rebuild only its tasks) before tagging.
@@ -123,6 +124,24 @@ Other files: `PRD.md` · `spec.md` · `plan.md` (the pipeline artifacts) and `ta
 - **status** — report stage, active task, what waits for the owner.
 - **add** / **change** — a new feature / a change to approved behaviour: reopen only the affected artifact (e.g. `spec.md`), re-approve it, rebuild only what changed.
 - **release** — assemble, verify, and tag the release automatically when the gate is green (no owner approval).
+
+## What counts as built
+
+A task is **built** only when the running application does what the spec says, from its real entry point. Unit tests passing is not built. Code that exists but nothing calls is not built. "Zero findings" is not a pass.
+
+The ladder, and what each rung proves:
+1. **Unit** — the function does its job alone. Necessary, never sufficient.
+2. **Wired** — the feature is reachable from the product's real entry point (the route, the CLI command, the button, the agent's tool list). Check it by running the entry point and seeing the feature happen, not by reading the diff.
+3. **End to end** — run the whole product against the lab (the live proof) with the real provider, and read the output. The task's gate records it on the evidence line as `e2e: <command> → <what it showed>`.
+4. **Expected** — the output contains what the lab is known to contain. A detector that reports nothing against a lab with known findings has failed, however green its tests are.
+
+Only rungs 3 and 4 make a task **built**. A task that passes 1 and 2 but not 3 and 4 is `unproven`: it stays on the board, the pane says so, and the release gate refuses it.
+
+**Parallel work counts each part.** When several agents do the same kind of thing (five detector agents, say), each one is a separate task with its own `e2e:` line. "Two of five work" is not built; the release gate lists the three that are not.
+
+**The judge runs the product, not the diff.** The judge starts the application, runs the task's `e2e` command against the lab, reads the result against the expected findings, and writes the evidence line. A judge that only reads code and says PASS is a bug, and the subagent is redeployed.
+
+**Inspiration, and what each one teaches.** Superpowers: verification before claiming done, and test first. Matt Pocock's skills: tracer bullets, one thin vertical slice through every layer before widening, and grilling the plan with questions before building. Get Shit Done: goal-backward verification (what must be true when the phase is over, checked against the code and the running app), with each phase's must-haves written down before it starts. Check these against the sources the owner names before relying on the details.
 
 ## A new round
 
