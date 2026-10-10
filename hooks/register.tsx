@@ -354,7 +354,13 @@ export const register: Register = on => {
     const evidence = await read($, evidenceAtom)
     const st = await readState($)
     if (!st || !st.stage) {
-      return <Box flexDirection="column" paddingX={1}>{controls}<Text color="subtle">Not a Ghostship project yet. Run /ghostship new.</Text></Box>
+      return (
+        <Box flexDirection="column" paddingX={1} gap={1}>
+          {controls}
+          <Text bold color={GS.clay}>No Ghostship project here yet.</Text>
+          <Text color={GS.mist}>Run /ghostship new to start one, or /ghostship-overview to see this app.</Text>
+        </Box>
+      )
     }
     const board = await readBoard($)
     const cur = curIndexOf(st.stage)
