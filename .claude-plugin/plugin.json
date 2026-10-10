@@ -1,6 +1,6 @@
 {
   "name": "ghostship",
-  "version": "0.8.0",
+  "version": "0.8.1",
   "description": "Ghostship — an autonomous software factory as a Claude Code plugin. One orchestrator skill runs a project test-first through intake → PRD → design → acceptance checks (STOP 1) → phased plan → TDD build with builder/judge subagents → release (STOP 2). Reliability comes from strong subagent contracts and, as they are added, mods (hooks) that enforce the process.",
   "author": {
     "name": "shekharcharles"

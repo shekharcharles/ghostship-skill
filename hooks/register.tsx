@@ -245,15 +245,33 @@ async function setHidden($: EngineInterface, hidden: boolean): Promise<void> {
 }
 
 // Compare the installed manifest version with the one published on GitHub; note when a newer one exists.
-async function checkUpdate($: EngineInterface): Promise<void> {
+// The newest published version, read from the repository's manifest. Tries the engine's own fetch first, then curl; a failure
+// carries its reason, so "could not check" is never mistaken for "up to date".
+async function latestVersion($: EngineInterface): Promise<string> {
+  let why = ''
   try {
-    const installed = JSON.parse(await $.fs.read(`${$.plugin.root}/.claude-plugin/plugin.json`)).version as string
-    const res = await $.process.run(['curl', '-fsSL', '-m', '8', RAW_MANIFEST])
-    if (res.exitCode !== 0 || !res.stdout) return
-    const latest = JSON.parse(res.stdout).version as string
+    const r = await $.http.fetch(RAW_MANIFEST)
+    if (r.ok) return JSON.parse(r.text).version as string
+    why = `GitHub answered ${r.status}`
+  } catch (err) { why = (err as Error).message }
+  const res = await $.process.run(['curl', '-fsSL', '-m', '8', RAW_MANIFEST])
+  if (res.exitCode !== 0 || !res.stdout) throw new Error(`${why || 'no answer'}; curl exit ${res.exitCode}${res.stderr ? `: ${res.stderr.trim().slice(0, 120)}` : ''}`)
+  return JSON.parse(res.stdout).version as string
+}
+
+// Compares the installed version with the newest; the result says which, or why the check could not run.
+async function checkUpdate($: EngineInterface): Promise<{ latest?: string; installed?: string; error?: string }> {
+  let installed = ''
+  try {
+    installed = JSON.parse(await $.fs.read(`${$.plugin.root}/.claude-plugin/plugin.json`)).version as string
+    const latest = await latestVersion($)
     const newer = !!installed && !!latest && cmpVersion(latest, installed) > 0
     await update($, updateAtom, () => (newer ? { latest } : null))
-  } catch { /* no network or no curl — just don't offer an update */ }
+    return newer ? { latest, installed } : { installed }
+  } catch (err) {
+    await update($, updateAtom, () => null)
+    return { installed, error: (err as Error).message }
+  }
 }
 
 // One-click update: refresh the marketplace and update the plugin, then ask for a restart to apply.
@@ -275,12 +293,13 @@ async function applyUpdate($: EngineInterface): Promise<void> {
   }
 }
 
-// The menu's "Check for update": look now and say what was found.
+// The menu's "Check for update": look now and say what was found, or why it could not look.
 async function checkNow($: EngineInterface): Promise<void> {
   $.ui.toast('Ghostship: checking for an update…')
-  await checkUpdate($).catch(() => undefined)
-  const u = await read($, updateAtom)
-  $.ui.toast(u ? `Ghostship ${u.latest} is available — click Update.` : 'Ghostship is up to date.')
+  const r = await checkUpdate($)
+  if (r.error) $.ui.toast(`Could not check for an update: ${r.error}`)
+  else if (r.latest) $.ui.toast(`Ghostship ${r.latest} is available (you have ${r.installed}). Click Update.`)
+  else $.ui.toast(`Ghostship ${r.installed} is the newest version.`)
 }
 
 async function doUpdate($: EngineInterface): Promise<void> {
