@@ -38,6 +38,8 @@ const lastReplyAtAtom = atom({ plugin: 'ghostship', key: 'lastReplyAt' } as cons
 const keepWarmAtom = atom({ plugin: 'ghostship', key: 'keepWarm' } as const, null)
 const lastRefreshAtom = atom({ plugin: 'ghostship', key: 'lastRefresh' } as const, null)
 const cacheTtlAtom = atom({ plugin: 'ghostship', key: 'cacheTtl' } as const, null)
+// The cache lifetime the owner picks in the ◆ Ghostship menu; overrides the engine's report, kept across sessions.
+const cacheChoiceAtom = atom({ plugin: 'ghostship', key: 'cacheChoice' } as const, null)
 const ledgerAtom = atom({ plugin: 'ghostship', key: 'ledger' } as const, [])
 const projectUsdAtom = atom({ plugin: 'ghostship', key: 'projectUsd' } as const, null)
 // Which model each subagent role runs on; in $.store too, so it holds across sessions.
@@ -80,7 +82,8 @@ const MAX_AGENT_ROWS = 4
 const OTHER_MOD_ROWS = 4
 // A verdict shows on the band this long after it lands; the spinner's frames, one a second.
 const NOTICE_MS = 20_000
-const SPIN = ['◐', '◓', '◑', '◒']
+// A dotted spinner that circles while something runs (builders, judges, the main thread, a task being built).
+const SPIN = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏']
 
 // The plugin's own installed version, from its manifest — shown in the band and pane.
 async function versionOf($: EngineInterface): Promise<string> {
@@ -251,16 +254,48 @@ async function checkUpdate($: EngineInterface): Promise<void> {
 }
 
 // One-click update: refresh the marketplace and update the plugin, then ask for a restart to apply.
+// Set once the new version is downloaded and waiting to be applied; the reload holds until the build is idle.
+let reloadPending = false
+function buildBusy(): boolean {
+  return working || running.size > 0
+}
+
+// Reload the plugin so the downloaded version takes effect, without killing the build (the turn and subagents are the engine's,
+// not the plugin's). If the engine will not run the command for a mod, fall back to asking the owner to reload.
+async function applyUpdate($: EngineInterface): Promise<void> {
+  reloadPending = false
+  try {
+    await $.command.run({ command: 'reload-plugins' })
+    $.ui.toast('Ghostship updated and reloaded — your build kept running.')
+  } catch {
+    $.ui.toast('Ghostship is downloaded. Run /reload-plugins to apply it (your build keeps running); or restart later.')
+  }
+}
+
+// The menu's "Check for update": look now and say what was found.
+async function checkNow($: EngineInterface): Promise<void> {
+  $.ui.toast('Ghostship: checking for an update…')
+  await checkUpdate($).catch(() => undefined)
+  const u = await read($, updateAtom)
+  $.ui.toast(u ? `Ghostship ${u.latest} is available — click Update.` : 'Ghostship is up to date.')
+}
+
 async function doUpdate($: EngineInterface): Promise<void> {
   try {
-    $.ui.toast('Ghostship: updating…')
+    $.ui.toast('Ghostship: downloading the update…')
     await $.process.run(['claude', 'plugin', 'marketplace', 'update', MARKET], { timeoutMs: 120000 })
     const r = await $.process.run(['claude', 'plugin', 'update', PLUGIN], { timeoutMs: 120000 })
-    if (r.exitCode === 0) {
-      await update($, updateAtom, () => null)
-      $.ui.toast('Ghostship updated — restart Claude Code to apply.')
-    } else {
+    if (r.exitCode !== 0) {
       $.ui.toast(`Ghostship update failed: ${(r.stderr || r.stdout || 'unknown').trim().slice(0, 160)}`)
+      return
+    }
+    await update($, updateAtom, () => null)
+    // The download never interrupts the build; the reload waits until nothing is running.
+    if (buildBusy()) {
+      reloadPending = true
+      $.ui.toast('Ghostship downloaded — it applies the moment the current work finishes. The build keeps running.')
+    } else {
+      await applyUpdate($)
     }
   } catch (e) {
     $.ui.toast(`Ghostship update error: ${(e as Error).message}`)
@@ -282,10 +317,16 @@ let lastHit: number | null = null
 let working = false
 let warnedFor = 0
 
-// The lifetime the engine reported on its last model switch wins over the setting, which covers sessions that never switch.
-let cacheSetting: string | undefined
+// The cache lifetime for the countdown: the owner's menu choice wins, else the engine's last model-switch report, else 1h
+// (a Claude subscription; pick 5m in the menu on an API key).
 async function ttlNow($: EngineInterface): Promise<number> {
-  return ttlMs((await read($, cacheTtlAtom)) ?? cacheSetting)
+  return ttlMs((await read($, cacheChoiceAtom)) ?? (await read($, cacheTtlAtom)) ?? '1h')
+}
+// The owner's cache-lifetime choice from the menu, kept across sessions.
+async function setCacheChoice($: EngineInterface, value: '5m' | '1h'): Promise<void> {
+  await update($, cacheChoiceAtom, () => value)
+  try { await $.store.set('cacheChoice', value) } catch { /* not persisted */ }
+  $.ui.toast(`Cache lifetime set to ${value === '1h' ? '1 hour' : '5 minutes'} for the countdown.`)
 }
 
 // Each second: the latest usage figures, keep-warm when its window is open, the cold-cache warning a minute ahead, a redraw.
@@ -372,15 +413,15 @@ async function recordSpend($: EngineInterface): Promise<void> {
   await update($, projectUsdAtom, () => projectTotal(bySession))
 }
 
-// ---- keeping the build going: between STOP 1 and STOP 2 the owner is never asked, and the turn does not end ----
+// ---- keeping the build going: after STOP 1 (through release) the owner is never asked, and the turn does not end ----
 // The skill says so; these two hooks hold it to that. A question is refused with the way to park it instead, and a turn
 // that tries to end while tasks remain is sent back to the next one, up to MAX_NUDGES times without progress on disk.
 const MAX_NUDGES = 3
 let nudges = 0
 let lastProgress = ''
-const ASK_REFUSED = 'Ghostship is building unattended (between STOP 1 and STOP 2), so the owner is not asked now. ' +
+const ASK_REFUSED = 'Ghostship is running unattended (after STOP 1, through release), so the owner is not asked now. ' +
   'Park it instead: set the task to parked in BOARD.md, add the question with the options and your recommended answer to ' +
-  'docs/ghostship/DECISIONS.md, and go on with the next ready task. The owner answers every DECISIONS.md item together at STOP 2.'
+  'docs/ghostship/DECISIONS.md with the recommended answer applied, and go on with the next ready task. Decisions are listed in the release report, not asked.'
 
 async function buildStatus($: Fs): Promise<{ unattended: boolean; left: Task[]; progress: string }> {
   const stateText = await tryRead($, STATE_FILE)
@@ -392,11 +433,10 @@ async function buildStatus($: Fs): Promise<{ unattended: boolean; left: Task[]; 
   }
 }
 
-export const register: Register = (on, options) => {
-  cacheSetting = typeof options?.cacheTtl === 'string' ? options.cacheTtl : undefined
-
+export const register: Register = on => {
   on('session.start', async ($, e, next) => {
     const started = await next(e)
+    try { const c = await $.store.get('cacheChoice'); if (c === '5m' || c === '1h') await update($, cacheChoiceAtom, () => c) } catch { /* no stored choice */ }
     activeTask = null; activeSince = null; publishedKey = ''; stamps = []; stamped = false; lastState = null
     try { await readVersion($) } catch { /* unknown version */ }
     try { await seedSpend($) } catch { /* no spend */ }
@@ -421,8 +461,10 @@ export const register: Register = (on, options) => {
       const stored = await $.store.get(projectKey)
       await update($, projectUsdAtom, () => projectTotal(stored && typeof stored === 'object' ? stored as Record<string, number> : {}))
     } catch { /* no project spend */ }
-    // Check GitHub for a newer version, in the background; if there is one, a one-click Update row appears.
-    void checkUpdate($).then(async () => { const u = await read($, updateAtom); if (u) $.ui.toast(`Ghostship ${u.latest} is available — click Update above the prompt, or /ghostship-update`) }).catch(() => undefined)
+    // Check GitHub for a newer version now and every 30 minutes, so an update appears in the band without a restart.
+    const announce = async () => { const u = await read($, updateAtom); if (u) $.ui.toast(`Ghostship ${u.latest} is available — click Update above the prompt, or /ghostship-update`) }
+    void checkUpdate($).then(announce).catch(() => undefined)
+    try { $.clock.every(30 * 60_000, () => void checkUpdate($).then(announce).catch(() => undefined)) } catch { /* no periodic check */ }
     return started
   })
 
@@ -435,6 +477,8 @@ export const register: Register = (on, options) => {
     await update($, lastReplyAtAtom, () => now)
     await publish($)
     await recordSpend($).catch(() => undefined)
+    // A downloaded update waits for a quiet moment; apply it now that the turn is done and nothing is running.
+    if (reloadPending && running.size === 0) await applyUpdate($).catch(() => undefined)
     return next(e)
   }).catch(($, e, next) => next(e))
   // Every reply of the main model restarts the prompt cache's lifetime; subagents keep caches of their own.
@@ -503,7 +547,7 @@ export const register: Register = (on, options) => {
     return {
       block: `Ghostship's build is not finished: ${b.left.length} task(s) remain, next ${first.id} (${first.label}). ` +
         'Do not stop and do not ask the owner. Continue with the next ready task now; anything you cannot resolve is parked ' +
-        'with its reason in BOARD.md and DECISIONS.md for STOP 2.',
+        'with its reason in BOARD.md and DECISIONS.md; it is applied automatically and listed in the release report.',
     }
   }).catch(($, e, next) => next(e))
   on('session.measure', async ($, e, next) => { const r = await next(e); try { await update($, spendAtom, () => toSpend(e as any)) } catch { /* ignore */ } return r }).catch(($, e, next) => next(e))
@@ -607,6 +651,7 @@ export const register: Register = (on, options) => {
     let panel: any = null
     if (await read($, panelOpenAtom)) {
       const pst = await readState($)
+      const ttlChoice = (await read($, cacheChoiceAtom)) ?? (await read($, cacheTtlAtom)) ?? '1h'
       const pIn = !!pst?.stage
       const pBoard = pIn ? await readBoard($) : []
       const pDone = pBoard.filter(t => t.status === 'done' || t.status === 'merged').length
@@ -667,6 +712,22 @@ export const register: Register = (on, options) => {
           chip('p-p-open', 'Open', paneUp, () => void setPane($, true)),
           chip('p-p-min', 'Minimized', !paneUp, () => void setPane($, false)),
         ]),
+        setting('p-cache', 'Cache', 'how long the prompt cache stays warm (the countdown)', true, [
+          chip('p-c-5m', '5m', ttlChoice === '5m', () => void setCacheChoice($, '5m')),
+          chip('p-c-1h', '1h', ttlChoice === '1h', () => void setCacheChoice($, '1h')),
+        ]),
+        <Box key="p-upd-row" flexDirection="row" justifyContent="space-between" gap={1}>
+          <Box flexDirection="row" gap={1} flexShrink={1} minWidth={0}>
+            <Text color={upd ? GS.amber : GS.subtle}>{upd ? '⬆' : '●'}</Text>
+            <Text bold>Updates</Text>
+            <Text dimColor wrap="truncate-end">{upd ? `v${upd.latest} is available` : `v${installedVersion ?? '…'} — the newest`}</Text>
+          </Box>
+          <Box flexDirection="row" gap={1} flexShrink={0}>
+            {upd
+              ? <Button key="p-upd-go" label=" Update " variant="primary" onPress={() => void doUpdate($)} />
+              : <Button key="p-upd-chk" label=" Check for update " plain dimColor onPress={() => void checkNow($)} />}
+          </Box>
+        </Box>,
         withHeads ? heading('p-lh', 'L A U N C H') : null,
         <Box key="p-launch" flexDirection="row" flexWrap="wrap" gap={2}>
           {launch('p-l-new', '✦', 'New voyage', `/${SKILL_COMMAND} new`)}
@@ -894,7 +955,7 @@ export const register: Register = (on, options) => {
         <Box key={s.key}>
           <Text color={mk.color} bold={mk.bold} dimColor={s.state === 'd'}>{mk.glyph} {s.label}</Text>
           {s.key === 'spec' && i < cur ? <Text color="subtle">  locked</Text> : null}
-          {s.key === 'spec' || s.key === 'release' ? <Text color={st!.awaiting && s.state === 'c' ? 'warning' : 'subtle'}>{`  ⏸ STOP ${s.key === 'spec' ? 1 : 2}`}</Text> : null}
+          {s.key === 'spec' ? <Text color={st!.awaiting && s.state === 'c' ? 'warning' : 'subtle'}>{'  ⏸ STOP 1'}</Text> : null}
         </Box>
       )
     }) : []

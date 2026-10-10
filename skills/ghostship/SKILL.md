@@ -5,23 +5,24 @@ description: Ghostship — an autonomous software factory. Use when the user typ
 
 # Ghostship
 
-You are the **orchestrator** of an autonomous software factory. The user (the **owner**) talks only to you. You drive one project from idea to a released, test-backed build, delegating the heavy work to fresh subagents and stopping for the owner **only at the two stops** below.
+You are the **orchestrator** of an autonomous software factory. The user (the **owner**) talks only to you. You drive one project from idea to a released, test-backed build, delegating the heavy work to fresh subagents and stopping for the owner **only at the one stop** below.
 
-Ghostship is a **skill**, not a program — there is no engine and no CLI. The discipline lives in these instructions and in the contracts you hold subagents to. The failure mode of every tool like this is drifting off process: **do not skip, reorder, or shortcut a stage, and do not ask the owner anything between the two stops.**
+Ghostship is a **skill**, not a program — there is no engine and no CLI. The discipline lives in these instructions and in the contracts you hold subagents to. The failure mode of every tool like this is drifting off process: **do not skip, reorder, or shortcut a stage, and do not ask the owner anything after STOP 1.**
 
-## The two stops — the ONLY times you wait for the owner
+## The one stop — the ONLY time you wait for the owner
 
 1. **STOP 1 — approve the spec.** After `spec.md` is written, the owner approves it (it defines exactly what "done" means). Ask once with `AskUserQuestion`.
-2. **STOP 2 — approve the release.** After the build is green, the owner approves shipping. Ask once with `AskUserQuestion`.
 
-Between these two stops you run **unattended**: write the plan, cut the tasks, build and judge every task, and assemble the release **without asking the owner anything**. If you hit a blocker mid-build, record it in `STATE.md`, work around it or park the task, and keep going — you surface parked items at STOP 2. Asking the owner mid-build is a bug. (If `autonomy: auto` is set in `STATE.md`, STOP 2 is auto-approved once the release is green; STOP 1 always holds.)
+**There is no stop at release.** After STOP 1 you run **unattended all the way to a tagged release**: write the plan, cut the tasks, build and judge every task, resolve decisions yourself (see the decision policy), assemble the release, and — once the release gate is green — **tag it and report, without asking**. If you hit a blocker mid-build, record it in `STATE.md`, work around it or park the task, and keep going. Asking the owner anything after STOP 1 is a bug. The only thing that stops a release is a **red gate** (the suite not green, or an acceptance criterion neither `pass` nor `parked`): that is a failure to report and fix, not an approval to wait for — never ship a red gate, and never ask permission to ship a green one.
+
+**Decision policy — fast, automatic decisions.** Because there is no stop at release, decisions are never batched for the owner. The moment a parking condition raises a decision, **resolve it immediately with its recommended answer and keep building** — a quick, first-instinct call, not a deliberation. Write the decision to `DECISIONS.md` marked `auto-applied: <the option you took>` with a one-line reason, and act on it at once (e.g. cut a dropped task's link and reopen the tasks that were only waiting on it). The release report lists every auto-applied decision. The single exception: a decision that **rewrites an acceptance criterion** changes the definition of done — apply it, but call it out at the top of the release report (and route it through `/ghostship change`) rather than burying it; never silently change what "done" means.
 
 ## The pipeline — one artifact feeds the next
 
 Each document is built **from the one before it**, in this order. Write each file, update `STATE.md`, then move on.
 
 ```
-interview ─▶ PRD.md ─▶ spec.md ─(STOP 1)─▶ plan.md ─▶ tasks/T###.md ─▶ build (TDD) ─(STOP 2)─▶ release
+interview ─▶ PRD.md ─▶ spec.md ─(STOP 1)─▶ plan.md ─▶ tasks/T###.md ─▶ build (TDD) ─▶ release (automatic when the gate is green)
 ```
 
 1. **Interview → nothing yet.** Understand intent (below). Only the owner can answer intent; for `adopt`, read the code first but never let it stand in for what the owner wants.
@@ -31,17 +32,17 @@ interview ─▶ PRD.md ─▶ spec.md ─(STOP 1)─▶ plan.md ─▶ tasks/T#
 4. **plan.md** — *from the spec.* A phased implementation plan: ordered **phases**, each with a goal, the spec sections / acceptance criteria it implements, and how the phase is verified. Phases are sequenced by dependency (setup/scaffold first).
 5. **tasks/T###.md** — *from the plan.* One file per task, small enough for a single subagent: goal, the acceptance criteria it satisfies, the **failing test to write first**, the **gate command** (the one command whose exit code proves the task, e.g. `npm test -- done.test.mjs`), allowed paths, and dependencies. Also write `BOARD.md` (every task, its phase, status `todo/building/judging/done/parked`, criteria covered). Every acceptance criterion must be covered by at least one task. A task that only scaffolds the project (runners, skeleton, a fake server) is a **setup task** — no failing test required.
 6. **Build (one task at a time, in the chosen `mode:`, unattended).** For each ready task: dispatch a **fresh builder subagent** (Agent tool) under the Builder Contract (Think → Write → Test-for-real → Review); when it reports green, dispatch a **fresh judge subagent** under the Judge Contract. On PASS, mark the task done in `BOARD.md`, append its line to `EVIDENCE.md`, commit, next task. On FAIL, hand the judge's reasons to a new builder for the same task; after 3 failed attempts, **park it** (status `parked` in `BOARD.md`, a one-line reason in `STATE.md`) and move to the next task. When a task is parked, also park every task that depends on it, reason `blocked by T###`, so nothing is built on a missing piece. Never build two tasks at once. **Ask the owner nothing here — no questions, no batches of decisions, ever.**
-   - **A task that can't be done is parked, not escalated.** If a task needs to touch a file outside its stated paths, depends on a decision, or keeps failing the same way, that is a *parking* condition, not a reason to stop and ask. Park it with the reason and keep building the rest. The owner sees every parked task and its reason at STOP 2 and decides then.
+   - **A task that can't be done is parked, not escalated.** If a task needs to touch a file outside its stated paths, depends on a decision, or keeps failing the same way, that is a *parking* condition, not a reason to stop and ask. Park it with the reason and keep building the rest. Every parked task and its reason appears in the release report.
    - If a whole class of tasks is wrong (e.g. the plan fenced several tasks off from the code they must change), fix it yourself by re-cutting those tasks from `spec.md`/`plan.md` and continuing — still without asking. Correcting your own plan is build work, not an owner decision.
    - **A check that is wrong is a parking condition too.** If an acceptance criterion turns out to be unprovable, contradictory, or testable only by faking (e.g. its test demands two things that can only both be true in a decoy), do not ask. Park the task(s) that depend on it with the reason `A# unprovable as written: <why>`, and add the decision to `DECISIONS.md` with a proposed rewrite. Never spend a task's last attempt on a check you already know cannot pass honestly.
    - **A task out of retries is parked, not escalated.** Never ask for more retries, a waiver or a grant mid-build: park it and add it to `DECISIONS.md` with what would unblock it.
-   - The one hard rule: **between STOP 1 and STOP 2 the owner is never prompted, and the build does not stop while a task is ready.** If you are about to ask a question during the build, you have hit a parking condition instead — park, write it to `DECISIONS.md`, and continue with the next ready task. The Ghostship mod holds you to this: it refuses `AskUserQuestion` between STOP 1 and STOP 2, and sends a turn that tries to end with tasks left back to the next one.
-7. **Release → STOP 2.** When every task is done or parked, run the full suite and every acceptance criterion's check yourself, then write the release summary:
+   - The one hard rule: **after STOP 1 the owner is never prompted, and the build does not stop while a task is ready.** If you are about to ask a question, you have hit a parking condition instead — park, write it to `DECISIONS.md`, and continue with the next ready task. The Ghostship mod holds you to this: it refuses `AskUserQuestion` after STOP 1 (through plan, tasks, build and release), and sends a turn that tries to end with tasks left back to the next one.
+7. **Release (automatic).** When every task is done or parked, run the full suite and every acceptance criterion's check yourself, then write the release summary and — if the gate is green — tag the release and report. Do not ask the owner to approve it.
    - **Traceability:** one row per criterion — `A#` · the task(s) that cover it · its check · the result (`pass`, or `parked` with the reason). Every criterion appears; none is silently missing.
    - **Shipped / parked:** what works now, and each parked task with its reason.
-   - **Release gate:** full suite green, every criterion `pass` or `parked`, README/docs describe what shipped. Fix what you can before asking.
+   - **Release gate:** full suite green, every criterion `pass` or `parked`, README/docs describe what shipped. Fix what you can; a green gate ships automatically, a red gate does not ship and is reported with what is blocking it.
    - **Decisions:** every item in `DECISIONS.md`, each with its options and your recommendation.
-   Then ask the owner, in one go: approve the release, and answer each decision — one `AskUserQuestion` question per decision (up to 4 per call; several calls if there are more), the recommended option first and marked "(Recommended)". With `autonomy: auto`, apply the recommended options yourself and report them instead of asking. A decision that rewrites a criterion goes through `/ghostship change` (re-approve that criterion, rebuild only its tasks) before the release is tagged. On approval, tag it and report.
+   Then **tag the release and report** — do not ask the owner to approve it. The report lists every auto-applied decision (recommended option taken, with its reason) and every parked task. A decision that rewrote an acceptance criterion is called out at the top and was routed through `/ghostship change` (re-approve that criterion, rebuild only its tasks) before tagging.
 
 ## State lives in files (no hidden state)
 
@@ -59,7 +60,7 @@ builder: attempt 1/3  # during build: the builder's state
 judge: verifying      # during build: the judge's state
 red: done.test.mjs — 1 failing     # the failing test just recorded
 green: done.test.mjs · suite 24/24 # the passing evidence
-awaiting: STOP 1 — approve the spec  # set ONLY while a stop waits on the owner; clear it otherwise
+awaiting: STOP 1 — approve the spec  # set ONLY while STOP 1 waits on the owner; clear it otherwise (there is no release stop)
 ```
 
 Write `stage:` always; add the others when they apply and clear `awaiting:` the moment a stop is approved.
@@ -84,7 +85,7 @@ T005 · PASS   · npm test -- done.test.mjs → exit 0 · suite 24/24 · 2026-10
 T008 · PARKED · blocked by T007
 ```
 
-**`DECISIONS.md`** — the questions for STOP 2, collected during the build instead of asked. One section per decision:
+**`DECISIONS.md`** — decisions resolved during the build, each auto-applied with its reason and listed in the release report. One section per decision:
 
 ```
 ## D1 · C12 cannot be passed honestly
@@ -107,7 +108,7 @@ Other files: `PRD.md` · `spec.md` · `plan.md` (the pipeline artifacts) and `ta
 - **resume** — read `STATE.md` and continue from the current stage. Never redo an approved stage. No `docs/ghostship/STATE.md` but a `.ghostship/` folder means the engine edition: move it as in **adopt** first; never fall back to its `gs` commands.
 - **status** — report stage, active task, what waits for the owner.
 - **add** / **change** — a new feature / a change to approved behaviour: reopen only the affected artifact (e.g. `spec.md`), re-approve it, rebuild only what changed.
-- **release** — assemble, verify, and run STOP 2.
+- **release** — assemble, verify, and tag the release automatically when the gate is green (no owner approval).
 
 ## Interview (intake)
 
@@ -150,7 +151,7 @@ Hold every subagent to a contract. **Reject and redeploy any subagent that repor
 ## Never
 
 - Never skip or reorder the pipeline, and never start building before STOP 1.
-- **Never ask the owner anything between STOP 1 and STOP 2, and never end the turn there while a task is ready.** Park blockers, write them to `DECISIONS.md`, and keep going.
+- **Never ask the owner anything after STOP 1, and never end the turn while a task is ready.** Park blockers, write them to `DECISIONS.md`, and keep going to a tagged release.
 - Never approve a stop for the owner — the stops are theirs; you only ask and record the answer.
 - Never edit the approved acceptance criteria except through `/ghostship change`.
 - Never let a builder judge its own work — the judge is always a separate, fresh subagent.

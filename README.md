@@ -8,7 +8,7 @@ A plugin is a superset: it holds the instructional **skill** (the workflow), the
 
 ## The voyage
 
-intake → PRD → design → **STOP 1** (acceptance checks) → phased plan → TDD build (builder + judge subagents) → **STOP 2** (release).
+intake → PRD → design → **STOP 1** (acceptance checks) → phased plan → TDD build (builder + judge subagents) → release (automatic when the gate is green).
 
 State is plain markdown under `docs/ghostship/`, so any fresh session resumes by reading it. See `skills/ghostship/SKILL.md`.
 
@@ -29,7 +29,7 @@ Then in any project: `/ghostship new` (or `adopt`, `resume`).
 | `/ghostship-band` | Show or hide the band above the prompt |
 | `/ghostship-update` | Check for and install the latest version |
 
-**`◆ Ghostship ▾`**, at the right of the prompt's footer, opens the **control panel** above the prompt: the build mode (`tdd` / `verify` / `iterative`) and autonomy (`autopilot` / `auto`), written straight to `STATE.md`; the band on or off; the pane open or minimized; and launch buttons that put `/ghostship:ghostship new`, `resume`, `status` or `release` in the prompt for you to send.
+**`◆ Ghostship ▾`**, at the right of the prompt's footer, opens the **control panel** above the prompt: the build mode (`tdd` / `verify` / `iterative`) and autonomy (`autopilot` / `auto`), written straight to `STATE.md`; the band on or off; the pane open or minimized; the **Cache** lifetime (5m / 1h); a **Check for update** button (when a newer version is found it shows the version and an **Update** button); and launch buttons that put `/ghostship:ghostship new`, `resume`, `status` or `release` in the prompt for you to send.
 
 The pane opens when you ask: `/ghostship`, or **Open** in the control panel. Its `–` minimizes it to the `◆ Ghostship` button; the panel opens it again.
 
@@ -44,17 +44,17 @@ The pane adds three cards:
 
 **Smart routing.** The main thread (the orchestrator: interview, spec, plan, the STOP decisions) stays on the session's model, Opus, whose cache lasts the session. Each subagent is put on its role's model as it starts: searches and reading (`Explore`) on **Haiku**, **builders** and **judges** on **Sonnet**. A judge of a task that already failed once (an earlier judge of it this session, or a FAIL for it in `EVIDENCE.md`) runs on **Opus**: the retry is the hard case. The pane's **ROUTING** card changes any role's model, kept across sessions. Routing per subagent, not per step, matters: each model keeps its own cache, so switching the main thread to a cheaper model mid-conversation makes that model write the whole conversation again, which costs more than it saves.
 
-Prices are list prices (after [cache-tax](https://github.com/karanb192/cache-tax), MIT); the session total is Claude Code's own when it reports one. The cache lifetime defaults to 1h (a Claude subscription); set `5m` in the plugin's settings on an API key, and the engine's own figure wins whenever a model switch reports it. A resumed session that comes back cold says what its first message will cost.
+Prices are list prices (after [cache-tax](https://github.com/karanb192/cache-tax), MIT); the session total is Claude Code's own when it reports one. The cache lifetime defaults to 1h (a Claude subscription); set `5m` in the **◆ Ghostship menu → Cache** on an API key. Your choice wins; otherwise the engine's own figure, reported on a model switch, is used. A resumed session that comes back cold says what its first message will cost.
 
-## Unattended between the stops
+## Unattended after the one stop
 
-Between STOP 1 and STOP 2 nothing waits on you. The skill parks anything that needs you (a check that cannot pass honestly, a task out of retries) and writes it to `docs/ghostship/DECISIONS.md` with a recommended answer; STOP 2 asks them all at once. The mod enforces it: `AskUserQuestion` is refused during plan, tasks and build, and a turn that tries to end while tasks remain is sent back to the next one (three times at most without progress on the board, so it can never loop forever).
+After STOP 1 (approve the spec) nothing waits on you — there is no stop at release. The skill parks anything that needs you (a check that cannot pass honestly, a task out of retries) and writes it to `docs/ghostship/DECISIONS.md` with a recommended answer, applies that answer, and lists it in the release report. The mod enforces it: `AskUserQuestion` is refused after STOP 1 (through plan, tasks, build and release), and a turn that tries to end while tasks remain is sent back to the next one (three times at most without progress on the board, so it can never loop forever). When the release gate is green, the release is tagged automatically — no approval prompt.
 
 The pane reads the project's own files (`package.json` or `README.md`, `docs/ghostship/STATE.md`, `BOARD.md`, `EVIDENCE.md`, the top-level folder), so it shows something useful in any project.
 
 ## Moving a project from the engine edition
 
-A project the earlier engine edition ran (a `.ghostship/` folder, the `gs` commands, the Bridge pane) moves over with `/ghostship:ghostship adopt`. The skill stops the old runner and runs `skills/ghostship/scripts/from-engine.mjs`, which writes `docs/ghostship/` from `.ghostship/state/state.json`: the stage, the board (merged tasks done, retired ones parked, and the tasks waiting on them parked with a decision for STOP 2), the evidence, and links to the approved PRD and acceptance checks, which stay approved. It takes the engine's hooks and status line out of `.claude/settings.json` (a backup is kept beside it) and leaves `.ghostship/` in place. Until then the band and the pane say the project still runs the old engine.
+A project the earlier engine edition ran (a `.ghostship/` folder, the `gs` commands, the Bridge pane) moves over with `/ghostship:ghostship adopt`. The skill stops the old runner and runs `skills/ghostship/scripts/from-engine.mjs`, which writes `docs/ghostship/` from `.ghostship/state/state.json`: the stage, the board (merged tasks done, retired ones parked, and the tasks waiting on them parked with a decision applied and reported), the evidence, and links to the approved PRD and acceptance checks, which stay approved. It takes the engine's hooks and status line out of `.claude/settings.json` (a backup is kept beside it) and leaves `.ghostship/` in place. Until then the band and the pane say the project still runs the old engine.
 
 ## Layout
 
@@ -66,4 +66,4 @@ A project the earlier engine edition ran (a `.ghostship/` folder, the `gs` comma
 - `types/index.d.ts` — the `$.state` contract
 - `tests/` — `claude plugin test` suites
 
-Status: **0.7.3**, in active development. The earlier engine edition lives at github.com/shekharcharles/ghostship.
+Status: **0.7.4**, in active development. The earlier engine edition lives at github.com/shekharcharles/ghostship.

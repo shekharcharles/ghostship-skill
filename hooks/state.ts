@@ -13,9 +13,9 @@ export const VOYAGE: { key: StageKey; label: string }[] = [
   { key: 'release', label: 'Release' },
 ]
 
+// The only owner stop is STOP 1 (approve the spec); release is automatic, so no stop marker there.
 export const STOP_AFTER: Partial<Record<StageKey, string>> = {
   spec: 'STOP 1 — approve the spec',
-  release: 'STOP 2 — approve the release',
 }
 
 export type GhostshipState = {
@@ -127,11 +127,11 @@ export function setStateField(text: string, key: string, value: string): string 
 }
 
 /**
- * Whether Ghostship is building unattended: past STOP 1 (plan, tasks or build) with no stop waiting on the owner.
- * In this window the owner is never asked; anything that needs them is parked for STOP 2.
+ * Whether Ghostship is running unattended: past STOP 1 (plan, tasks, build or release) with no stop waiting on the owner.
+ * In this window the owner is never asked; anything that needs them is parked, and release is automatic.
  */
 export function isUnattended(st: GhostshipState | null): boolean {
-  return !!st && (st.stage === 'plan' || st.stage === 'tasks' || st.stage === 'build') && !st.awaiting
+  return !!st && (st.stage === 'plan' || st.stage === 'tasks' || st.stage === 'build' || st.stage === 'release') && !st.awaiting
 }
 
 /** The tasks still to finish: not done, merged or parked. */

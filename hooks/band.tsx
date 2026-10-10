@@ -27,7 +27,7 @@ export function bandTree(ui: { Box: any; Text: any }, props: BandProps, width: n
   const pulse = 0.5 + 0.5 * Math.sin(t * 0.13)
   const curColor = mix(GS.clay, GS.clayLit, pulse)
 
-  // Which stop (if any) is waiting now: STOP 1 at the Spec stage, STOP 2 at Release.
+  // Which stop (if any) is waiting now: only STOP 1, at the Spec stage (release is automatic).
   const stop1Hot = props.awaiting && props.curLabel === 'Spec'
   const stop2Hot = props.awaiting && (props.curLabel === 'Release' || props.released)
   const stopMark = (hot: boolean) => <Text color={hot ? mix(GS.amber, '#fff2d9', pulse * 0.5) : GS.subtle} bold={hot}>{' ⏸'}</Text>
@@ -35,7 +35,7 @@ export function bandTree(ui: { Box: any; Text: any }, props: BandProps, width: n
   const done = props.stages.filter(s => s.state === 'd').length
   const total = props.stages.length
 
-  // Full track: every stage with its glyph, the two STOPs marked in place.
+  // Full track: every stage with its glyph, STOP 1 marked in place.
   const full: any[] = []
   let fullLen = 0
   props.stages.forEach((s, i) => {

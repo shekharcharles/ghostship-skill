@@ -91,9 +91,10 @@ test("parseState reads mode and autonomy as one word, ignoring a trailing commen
 test("isUnattended: past STOP 1 and nothing waiting on the owner", () => {
   expect(isUnattended(parseState("stage: build\n"))).toBe(true);
   expect(isUnattended(parseState("stage: plan\n"))).toBe(true);
-  expect(isUnattended(parseState("stage: build\nawaiting: STOP 2 — approve the release\n"))).toBe(false);
+  expect(isUnattended(parseState("stage: build\nawaiting: a stop\n"))).toBe(false);
   expect(isUnattended(parseState("stage: spec\n"))).toBe(false);
-  expect(isUnattended(parseState("stage: release\n"))).toBe(false);
+  // Release is automatic now, so it runs unattended too.
+  expect(isUnattended(parseState("stage: release\n"))).toBe(true);
   expect(isUnattended(null)).toBe(false);
 });
 

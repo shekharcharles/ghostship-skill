@@ -35,7 +35,8 @@ declare module 'claude-code' {
       routing: { grunt: ModelTier; builder: ModelTier; judge: ModelTier }  // the model each subagent role runs on
       ledger: AgentSpend[]                              // this session's spend by agent: the main thread and each subagent
       projectUsd: number | null                          // every session of this project together (from $.store)
-      cacheTtl: '5m' | '1h' | null                      // the cache lifetime the engine last reported (a model switch carries it)
+      cacheTtl: '5m' | '1h' | null       // the cache lifetime the engine last reported (a model switch carries it)
+      cacheChoice: '5m' | '1h' | null     // the cache lifetime the owner picked in the ◆ Ghostship menu (overrides the above)
       boardOpen: boolean      // the voyage pane's BOARD section is expanded
       recorderOpen: boolean    // the voyage pane's RECORDER section is expanded
     }
