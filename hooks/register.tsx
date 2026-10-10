@@ -1321,7 +1321,7 @@ export const register: Register = on => {
     return (
       <Box flexDirection="column" gap={cards ? 0 : 1}>
         {tabBar}
-        {pevent ? <Text key="ev-top" bold color={pevent.tone === 'bad' ? 'error' : pevent.tone === 'warn' ? 'warning' : 'success'} wrap="truncate-end">{pevent.text}</Text> : null}
+        {pevent && nowMs - pevent.at < 30_000 ? <Text key="ev-top" color={pevent.tone === 'bad' ? 'error' : pevent.tone === 'warn' ? 'warning' : 'success'} wrap="truncate-end">{`› ${pevent.text}`}</Text> : null}
         {tab === 'overview' && section('s-banner', edge, [
           cards && cols >= WORDMARK_WIDTH + 8
             ? wordmark(ui, 'brand')
