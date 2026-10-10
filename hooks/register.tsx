@@ -157,20 +157,6 @@ async function publish($: EngineInterface): Promise<void> {
   await update($, snapAtom, () => snap)
 }
 
-async function refreshStatus($: EngineInterface): Promise<void> {
-  try {
-    const st = await readState($)
-    if (!st || !st.stage) { $.ui.status(installedVersion ? `⛴ v${installedVersion} · no voyage here` : '⛴ no voyage here'); return }
-    // One plain line under the prompt, the glance view when the band is hidden: version · stage · phase · task · STOP.
-    const i = curIndexOf(st.stage)
-    const parts = [installedVersion ? `⛴ v${installedVersion}` : '⛴', st.stage === 'done' ? 'released' : (VOYAGE[i]?.label ?? st.stage)]
-    if (st.phase) parts.push(`phase ${st.phase}`)
-    if (st.task) parts.push(st.task)
-    if (st.awaiting) parts.push(`⏸ ${st.awaiting}`)
-    $.ui.status(parts.join(' · '))
-  } catch (err) { $.ui.log(`ghostship status line: ${(err as Error).message}`, { to: "debug" }) }
-}
-
 async function setHidden($: EngineInterface, hidden: boolean): Promise<void> {
   await update($, hiddenAtom, () => hidden)
   try { await $.store.set('hidden', hidden) } catch { /* this session only */ }
@@ -217,19 +203,20 @@ export const register: Register = on => {
     try { await $.command.register({ name: 'ghostship-update', description: 'Ghostship: check for and install the latest version', immediate: true }) } catch { /* no command */ }
     try { await $.command.register({ name: 'ghostship-overview', description: 'Ghostship: show the whole app — what it is, what is built, its files', immediate: true }) } catch { /* no command */ }
     try { const v = await $.store.get('hidden'); if (typeof v === 'boolean') await update($, hiddenAtom, () => v) } catch { /* nothing stored */ }
-    try { await refreshStatus($) } catch { /* no status */ }
+    // The band above the prompt is the only live line; clear any status line an older version pinned.
+    try { $.ui.status(undefined) } catch { /* no status line */ }
     try { await publish($) } catch { /* the render falls back to a direct read */ }
     try { if (e.surface === 'terminal') void $.ui.open({ id: PANE, title: 'Ghostship' }) } catch { /* no pane */ }
-    // Live refresh: the snapshot and status line every 1.5 s, and a redraw of the band and panes every second.
-    try { $.clock.every(1500, () => { ticks += 1; if (ticks % 6 === 1) void readBranch($).catch(() => undefined); void publish($).catch(() => undefined); void refreshStatus($).catch(() => undefined) }) } catch { /* no live refresh */ }
+    // Live refresh: the snapshot every 1.5 s, and a redraw of the band and panes every second.
+    try { $.clock.every(1500, () => { ticks += 1; if (ticks % 6 === 1) void readBranch($).catch(() => undefined); void publish($).catch(() => undefined) }) } catch { /* no live refresh */ }
     try { $.clock.every(1000, () => $.ui.invalidate('ui.render')) } catch { /* no redraw timer */ }
     // Check GitHub for a newer version, in the background; if there is one, a one-click Update row appears.
     void checkUpdate($).then(async () => { const u = await read($, updateAtom); if (u) $.ui.toast(`Ghostship ${u.latest} is available — click Update above the prompt, or /ghostship-update`) }).catch(() => undefined)
     return started
   })
 
-  on('prompt.submit', async ($, e, next) => { await refreshStatus($); await publish($); return next(e) }).catch(($, e, next) => next(e))
-  on('turn.complete', async ($, e, next) => { await refreshStatus($); await publish($); return next(e) }).catch(($, e, next) => next(e))
+  on('prompt.submit', async ($, e, next) => { await publish($); return next(e) }).catch(($, e, next) => next(e))
+  on('turn.complete', async ($, e, next) => { await publish($); return next(e) }).catch(($, e, next) => next(e))
   on('session.measure', async ($, e, next) => { const r = await next(e); try { await update($, spendAtom, () => toSpend(e as any)) } catch { /* ignore */ } return r }).catch(($, e, next) => next(e))
 
   // ---- subagent rows: the builder, the judge and any other subagent, each with its current step ----
