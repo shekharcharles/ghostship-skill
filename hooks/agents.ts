@@ -24,3 +24,12 @@ export function stepOf(tool: string, args: Record<string, unknown>): string {
 export function roleOf(name: string): 'builder' | 'judge' | 'other' {
   return /judge/i.test(name) ? 'judge' : /build/i.test(name) ? 'builder' : 'other'
 }
+
+/** How many subagent rows fit in `room` rows: the newest `shown`, plus a "… n more" row when some are left out. */
+export function fitAgents(total: number, room: number, max: number): { shown: number; more: number } {
+  const cap = Math.max(0, Math.min(max, room))
+  if (total <= cap) return { shown: total, more: 0 }
+  if (cap === 0) return { shown: 0, more: 0 }
+  const shown = cap - 1
+  return { shown, more: total - shown }
+}

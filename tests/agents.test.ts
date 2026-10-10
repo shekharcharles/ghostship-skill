@@ -1,6 +1,6 @@
 import { describe, expect, test } from "claude-code/testing";
 
-import { roleOf, stepOf } from "../hooks/agents.ts";
+import { fitAgents, roleOf, stepOf } from "../hooks/agents.ts";
 
 describe("subagent rows", () => {
   test("stepOf names a step in words", () => {
@@ -15,5 +15,13 @@ describe("subagent rows", () => {
     expect(roleOf("Judge T004")).toBe("judge");
     expect(roleOf("Build T005: done command")).toBe("builder");
     expect(roleOf("Explore the repo")).toBe("other");
+  });
+
+  test("fitAgents keeps the newest rows and counts the rest", () => {
+    expect(fitAgents(2, 5, 4)).toEqual({ shown: 2, more: 0 });
+    expect(fitAgents(6, 5, 4)).toEqual({ shown: 3, more: 3 });
+    expect(fitAgents(3, 2, 4)).toEqual({ shown: 1, more: 2 });
+    expect(fitAgents(3, 1, 4)).toEqual({ shown: 0, more: 3 });
+    expect(fitAgents(3, 0, 4)).toEqual({ shown: 0, more: 0 });
   });
 });

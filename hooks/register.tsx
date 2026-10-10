@@ -6,10 +6,10 @@ import {
   progressBar, statusMark, cmpVersion, type GhostshipState, type Task,
 } from './state.ts'
 import type { VoyageSnap } from '../types'
-import { bandTree, type BandProps } from './band.tsx'
+import { bandTree } from './band.tsx'
 import { GS, clock, fmtTokens } from './lib.ts'
 import { appEntries, appIdentity, featuresOf } from './overview.ts'
-import { roleOf, stepOf, type Running } from './agents.ts'
+import { fitAgents, roleOf, stepOf, type Running } from './agents.ts'
 
 // Ghostship's two live surfaces: the band above the prompt (drawn by the hooks module on the terminal, one SVG on the
 // desktop) and the voyage pane docked right. Both only reflect the skill's own files (docs/ghostship/STATE.md
@@ -51,6 +51,9 @@ let ticks = 0
 // shortcut: an agent that never reports its stop keeps its row until the session restarts; sweep by age if that shows up.
 const running = new Map<string, Running>()
 const MAX_AGENT_ROWS = 4
+// A verdict shows on the band this long after it lands; the spinner's frames, one a second.
+const NOTICE_MS = 20_000
+const SPIN = ['◐', '◓', '◑', '◒']
 
 // The plugin's own installed version, from its manifest — shown in the band and pane.
 async function versionOf($: EngineInterface): Promise<string> {
@@ -334,89 +337,104 @@ export const register: Register = on => {
     const { Box, Button, Text } = ui
     try {
 
-    // An update notice with a one-click Update — shown whenever a newer version is published, even
-    // outside a project.
-    const upd = await read($, updateAtom)
-    const updateRow = upd ? (
-      <Box key="gs-upd" flexDirection="row">
-        <Text color={GS.amber} bold>{`⬆ Ghostship ${upd.latest} available `}</Text>
-        <Button key="gs-upd-go" label=" Update " variant="primary" onPress={() => void doUpdate($)} />
-        <Button key="gs-upd-x" label=" ✕" plain dimColor role="dismiss" onPress={() => void update($, updateAtom, () => null)} />
-      </Box>
-    ) : null
+    // The row budget: the engine gives this slot maxRows rows and drops a taller tree whole, without a word.
+    // shortcut: the other mods' rows drawn above ours are not counted; if a crowded band still vanishes, count `drawn` too.
+    const budget = typeof e.props.maxRows === 'number' ? e.props.maxRows : 12
+    let used = 0
+    const nowMs = await $.clock.now()
+    const t = Math.floor(nowMs / 1000)
 
-    // The voyage band, unless hidden: the full voyage inside a project, an idle line outside one.
-    let band: unknown = null
-    let waitRow: unknown = null
-    if (!(await read($, hiddenAtom))) {
+    // An update notice with a one-click Update — shown whenever a newer version is published, even outside a project.
+    // Plain buttons: the engine may take a dismiss-role button before its onPress runs.
+    const upd = await read($, updateAtom)
+    let updateRow: unknown = null
+    if (upd && budget - used >= 1) {
+      used += 1
+      updateRow = (
+        <Box key="gs-upd" flexDirection="row">
+          <Text color={GS.amber} bold>{`⬆ Ghostship ${upd.latest} available `}</Text>
+          <Button key="gs-upd-go" label=" Update " variant="primary" onPress={() => void doUpdate($)} />
+          <Button key="gs-upd-x" label=" ✕" plain dimColor onPress={() => void update($, updateAtom, () => null)} />
+        </Box>
+      )
+    }
+
+    // The band: one card, its border the state at a glance — amber waits on you, green is released, clay is building,
+    // grey is idle. Inside: the voyage line, then a STOP waiting or a fresh verdict, then a row per subagent at work.
+    let card: unknown = null
+    if (!(await read($, hiddenAtom)) && budget - used >= 1) {
       let snap = await read($, snapAtom)
       if (!snap || !snap.visible) {
         const st = await readState($)
         snap = st && st.stage ? snapFromState(st, -1) : null
       }
-      if (snap && snap.visible) {
-        const cols = Math.max(24, (e.props.bodyColumns || 80) - 3)
-        const props: BandProps = {
-          stages: snap.stages, curLabel: snap.curLabel, released: snap.released,
-          phase: snap.phase, task: snap.task, stop: snap.stop, awaiting: snap.awaiting, activeMs: snap.activeMs, version: installedVersion, branch,
-        }
-        // Drawn right here, not in a surface module: the band fits one line, dropping the least important parts first.
-        const t = Math.floor((await $.clock.now()) / 1000)
-        band = (
-          <Box key="gs-band" flexDirection="row">
-            {bandTree(ui, props, cols, t, props.activeMs)}
-            <Button key="gs-band-x" label="✕" plain dimColor role="dismiss" onPress={() => void setHidden($, true)} />
-          </Box>
-        )
-        // A STOP is waiting on the owner: say so, with a button that opens the voyage pane.
-        if (snap.awaiting) {
-          waitRow = (
-            <Box key="gs-wait" flexDirection="row" paddingX={1} gap={2}>
-              <Text color={GS.amber} bold>{`⏸ ${snap.stop ?? 'waiting on you'}`}</Text>
-              <Button key="gs-wait-open" label=" open " hotkey="o" variant="primary" onPress={() => void $.ui.open({ id: PANE, title: 'Ghostship' })} />
-            </Box>
-          )
-        }
-      } else {
-        // No Ghostship project in this folder: an idle band, as the pane has, so the mod is visibly loaded.
-        band = (
-          <Box key="gs-band" flexDirection="row" gap={3}>
+      const inProject = !!(snap && snap.visible)
+      const bordered = budget - used >= 3
+      // Inside the card: the border and padding take 4 columns, the ✕ takes 3.
+      const inner = Math.max(24, (e.props.bodyColumns || 80) - (bordered ? 4 : 0) - 3)
+      const hide = <Button key="gs-band-x" label=" ✕" plain dimColor onPress={() => void setHidden($, true)} />
+
+      const head = snap && inProject
+        ? bandTree(ui, {
+          stages: snap.stages, curLabel: snap.curLabel, released: snap.released, phase: snap.phase, task: snap.task,
+          stop: snap.stop, awaiting: snap.awaiting, activeMs: snap.activeMs, version: installedVersion, branch,
+        }, inner, t, snap.activeMs)
+        : (
+          <Box key="gs-idle" flexDirection="row" gap={3} flexGrow={1}>
             <Box flexShrink={0}><Text color={GS.clay} bold>{`⛴ Ghostship${installedVersion ? ` v${installedVersion}` : ''}`}</Text></Box>
             <Text dimColor wrap="truncate-end">no voyage here · /ghostship new to start one</Text>
             {branch ? <Box flexShrink={0}><Text color={GS.subtle}>{`⎇ ${branch}`}</Text></Box> : null}
-            <Button key="gs-band-x" label="✕" plain dimColor role="dismiss" onPress={() => void setHidden($, true)} />
           </Box>
         )
+      const rows: unknown[] = [<Box key="gs-head" flexDirection="row" justifyContent="space-between">{head}{hide}</Box>]
+      let room = budget - used - (bordered ? 3 : 1)
+
+      // A STOP waiting on the owner stays until it is answered; otherwise a verdict shows for 20 seconds after it lands.
+      if (snap && inProject && room >= 1) {
+        if (snap.awaiting) {
+          rows.push(
+            <Box key="gs-wait" flexDirection="row" gap={2}>
+              <Text color={GS.amber} bold>{`⏸ ${snap.stop ?? 'waiting on you'}`}</Text>
+              <Button key="gs-wait-open" label=" open " hotkey="o" variant="primary" onPress={() => void $.ui.open({ id: PANE, title: 'Ghostship' })} />
+            </Box>,
+          )
+          room -= 1
+        } else {
+          const ev = (await read($, evidenceAtom)).at(-1)
+          if (ev && nowMs - ev.at < NOTICE_MS) {
+            rows.push(ev.verdict === 'pass'
+              ? <Text key="gs-note" color={GS.green}>{`✓ ${ev.task} passed`}</Text>
+              : <Text key="gs-note" color={GS.amber}>{`⚠ ${ev.task} ${ev.verdict}`}</Text>)
+            room -= 1
+          }
+        }
       }
-    }
 
-    // One row per subagent at work: ◆ name › current step   elapsed. Fixed parts never shrink; the step truncates.
-    let agentRows: unknown = null
-    if (running.size) {
-      const nowMs = await $.clock.now()
+      // One row per subagent at work: a spinner in the role's colour, its name, its step in words, its elapsed time.
+      // Fixed parts never shrink; the step truncates. The newest rows are kept when there is no room for all.
       const all = [...running.values()]
-      const shown = all.slice(-MAX_AGENT_ROWS)
-      const more = all.length - shown.length
-      agentRows = (
-        <Box key="gs-agents" flexDirection="column">
-          {shown.map((a, i) => {
-            const role = roleOf(a.name)
-            const color = role === 'judge' ? GS.amber : role === 'builder' ? GS.clay : GS.mist
-            return (
-              <Box key={`gs-ag${i}`} flexDirection="row">
-                <Box flexShrink={0}><Text color={color}>{'◆ '}</Text><Text bold>{a.name.slice(0, 40)}</Text></Box>
-                <Text wrap="truncate-end">{` › ${a.label}`}</Text>
-                <Box flexShrink={0}><Text dimColor>{`  ${clock(nowMs - a.startMs)}`}</Text></Box>
-              </Box>
-            )
-          })}
-          {more > 0 ? <Text dimColor>{`… ${more} more`}</Text> : null}
-        </Box>
-      )
+      const fit = fitAgents(all.length, room, MAX_AGENT_ROWS)
+      all.slice(all.length - fit.shown).forEach((a, i) => {
+        const role = roleOf(a.name)
+        const color = role === 'judge' ? GS.amber : role === 'builder' ? GS.clay : GS.mist
+        rows.push(
+          <Box key={`gs-ag${i}`} flexDirection="row">
+            <Box flexShrink={0}><Text color={color}>{`${SPIN[(t + i) % SPIN.length]} `}</Text><Text bold>{a.name.slice(0, 40)}</Text></Box>
+            <Text wrap="truncate-end">{` › ${a.label}`}</Text>
+            <Box flexShrink={0}><Text dimColor>{`  ${clock(nowMs - a.startMs)}`}</Text></Box>
+          </Box>,
+        )
+      })
+      if (fit.more > 0) rows.push(<Text key="gs-ag-more" dimColor>{`… ${fit.more} more agent${fit.more === 1 ? '' : 's'}`}</Text>)
+
+      const tone = !snap || !inProject ? GS.subtle : snap.awaiting ? GS.amber : snap.released ? GS.green : snap.task || all.length ? GS.clay : GS.mist
+      card = bordered
+        ? <Box key="gs-card" flexDirection="column" borderStyle="round" borderColor={tone} paddingX={1}>{rows}</Box>
+        : rows[0]
     }
 
-    if (!updateRow && !band && !waitRow && !agentRows) return drawn
-    return <Box flexDirection="column">{drawn}{updateRow}{band}{waitRow}{agentRows}</Box>
+    if (!updateRow && !card) return drawn
+    return <Box flexDirection="column">{drawn}{updateRow}{card}</Box>
     } catch (err) {
       const msg = (err as Error).message
       $.ui.log(`ghostship band: ${msg}`, { to: "debug" })
