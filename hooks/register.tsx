@@ -11,6 +11,7 @@ import { GS, clock, fmtTokens } from './lib.ts'
 import { appEntries, appIdentity } from './overview.ts'
 import { fitAgents, roleOf, type Running } from './agents.ts'
 import { activityOf, partialArgsOf, thoughtOf, wordsAdded } from './activity.ts'
+import { DELETE_REFUSED, riskyDelete } from './guard.ts'
 import {
   addStep, cacheLeft, coldWriteUsd, countdown, endAgent, fmtK, hitRate, keepWarmDue, keepWarmLead, limitsOf, splitSpend, modelLabel, projectTotal,
   refreshVerdict, rowParts, shouldWarn, span, ttlMs, usageUsd,
@@ -713,6 +714,10 @@ export const register: Register = on => {
   }).catch(($, e, next) => next(e))
 
   on('tool.call', async ($, e, next) => {
+    // A delete that could remove more than it names is refused at once: the agent gets the reason and goes on, nothing waits.
+    if (e.tool === 'Bash' && riskyDelete(String((e as unknown as { input?: { command?: unknown } }).input?.command ?? ''))) {
+      return { deny: DELETE_REFUSED }
+    }
     const step = activityOf(e.tool, e as unknown as Record<string, unknown>)
     const live = liveOf(e.agentId ?? 'main')
     live.phase = 'tool'
