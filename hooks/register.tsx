@@ -135,8 +135,15 @@ async function paneIsOpen($: EngineInterface): Promise<boolean> {
   try { return (await $.ui.panes()).some(p => p.id === PANE) } catch { return false }
 }
 
+// The last state read with a real stage. The orchestrator rewrites STATE.md often; a read caught mid-write comes back empty
+// and would parse to no stage, flashing "no project" in the band. Keep the last good one until the file is actually gone.
+let lastState: GhostshipState | null = null
 async function readState($: Fs): Promise<GhostshipState | null> {
-  try { return parseState(await $.fs.read(STATE_FILE)) } catch { return null }
+  let text: string
+  try { text = await $.fs.read(STATE_FILE) } catch { lastState = null; return null }
+  const st = parseState(text)
+  if (st.stage) { lastState = st; return st }
+  return lastState ?? st
 }
 async function readBoard($: Fs): Promise<Task[]> {
   try { return parseBoard(await $.fs.read(BOARD_FILE)) } catch { return [] }
@@ -390,7 +397,7 @@ export const register: Register = (on, options) => {
 
   on('session.start', async ($, e, next) => {
     const started = await next(e)
-    activeTask = null; activeSince = null; publishedKey = ''; stamps = []; stamped = false
+    activeTask = null; activeSince = null; publishedKey = ''; stamps = []; stamped = false; lastState = null
     try { await readVersion($) } catch { /* unknown version */ }
     try { await seedSpend($) } catch { /* no spend */ }
     // Each step is guarded on its own, so one failure never stops the band from coming up.
