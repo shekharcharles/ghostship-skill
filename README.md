@@ -25,21 +25,22 @@ Then in any project: `/ghostship new` (or `adopt`, `resume`).
 
 | You type | What you see |
 |---|---|
-| `/ghostship` | The **voyage** pane: stage, progress, board, in-flight task, evidence, spend |
-| `/ghostship-overview` | The **app overview** pane: what the app is, what is built, what is being built, what is planned, and its files |
-| `/ghostship-band` | Show or hide the stage band above the prompt |
+| `/ghostship` | The **Ghostship pane**: the app and its one-line pitch, progress, the voyage, live agents, the task in flight, the board, verdicts, files, spend |
+| `/ghostship-band` | Show or hide the band above the prompt |
 | `/ghostship-update` | Check for and install the latest version |
 
-The overview reads the project's own files (`package.json` or `README.md`, `docs/ghostship/BOARD.md`, the top-level folder), so it works in any project that has them.
+The pane's `–` minimizes it into the band above the prompt as a `▣ pane` chip; one click on the chip opens it again. `✕` closes it. Either choice is remembered by the next session.
+
+The pane reads the project's own files (`package.json` or `README.md`, `docs/ghostship/STATE.md`, `BOARD.md`, `EVIDENCE.md`, the top-level folder), so it shows something useful in any project.
 
 ## Layout
 
 - `.claude-plugin/` — plugin and marketplace manifests
 - `skills/ghostship/SKILL.md` — the orchestrator skill
-- `hooks/register.tsx` — the one hooks module: panes, band, commands, update check
-- `hooks/state.ts`, `hooks/overview.ts` — pure helpers (parsing, grouping), no engine needed
-- `hooks/band.tsx`, `hooks/lib.ts` — the band's animated client and the palette
+- `hooks/register.tsx` — the one hooks module: the pane, the band, commands, update check
+- `hooks/state.ts`, `hooks/overview.ts`, `hooks/agents.ts` — pure helpers (parsing, grouping, step labels), no engine needed
+- `hooks/band.tsx`, `hooks/lib.ts` — the band's voyage line and the palette
 - `types/index.d.ts` — the `$.state` contract
 - `tests/` — `claude plugin test` suites
 
-Status: **0.2.0**, in active development. The earlier engine edition lives at github.com/shekharcharles/ghostship.
+Status: **0.4.7**, in active development. The earlier engine edition lives at github.com/shekharcharles/ghostship.

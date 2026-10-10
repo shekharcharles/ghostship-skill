@@ -37,21 +37,21 @@ describe("the voyage pane body", () => {
     world(on, null);
     await $.session.start({ surface: "terminal", isInteractive: true, cwd: "/work" });
     const ui = await $.ui.mount({ plugin: "ghostship", surface: "terminal", ...PANE });
-    await shows(ui, "No Ghostship project here yet");
+    await shows(ui, "No voyage here yet");
   });
 
   test("a Ghostship project shows its stage", { options: { autoOpen: false } }, async ($, on) => {
     world(on, STATE);
     await $.session.start({ surface: "terminal", isInteractive: true, cwd: "/work" });
     const ui = await $.ui.mount({ plugin: "ghostship", surface: "terminal", ...PANE });
-    await shows(ui, "BUILD");
+    await shows(ui, "● Build");
   });
 
   test("the pane header shows the version loaded", { options: { autoOpen: false } }, async ($, on) => {
     world(on, STATE);
     await $.session.start({ surface: "terminal", isInteractive: true, cwd: "/work" });
     const ui = await $.ui.mount({ plugin: "ghostship", surface: "terminal", ...PANE });
-    await shows(ui, "GHOSTSHIP v9.9.9");
+    await shows(ui, "v9.9.9");
   });
 
   test("the board section opens with a disclosure triangle", { options: { autoOpen: false } }, async ($, on) => {
@@ -68,5 +68,23 @@ describe("the voyage pane body", () => {
     const ui = await $.ui.mount({ plugin: "ghostship", surface: "terminal", ...PANE });
     await shows(ui, "✓ T001");
     await shows(ui, "⚠ T002");
+  });
+
+  test("– docks the pane into the band and ✕ closes it, and each is remembered", { options: { autoOpen: false } }, async ($, on) => {
+    world(on, STATE);
+    const closed: string[] = [];
+    const store = new Map<string, unknown>();
+    on("ui.close", ($: any, e: any) => { closed.push(e.id); return { value: undefined }; });
+    on("store.get", ($: any, e: any) => ({ value: store.get(e.key) }));
+    on("store.set", ($: any, e: any) => { store.set(e.key, e.value); return { value: undefined }; });
+    await $.session.start({ surface: "terminal", isInteractive: true, cwd: "/work" });
+    const ui = await $.ui.mount({ plugin: "ghostship", surface: "terminal", ...PANE });
+
+    await ui.press({ key: "pane-dock" });
+    expect(store.get("pane")).toBe("docked");
+    expect(closed).toEqual(["ghostship-voyage"]);
+
+    await ui.press({ key: "pane-close" });
+    expect(store.get("pane")).toBe("closed");
   });
 });

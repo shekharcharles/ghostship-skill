@@ -11,8 +11,8 @@ const BOARD = [
 
 const PANE = {
   component: "Pane" as const,
-  requestId: "ghostship-overview",
-  props: { title: "Overview", isFocused: false, bodyColumns: 44, placement: "dock" as const, scroll: { offset: 0, bodyRows: 30 }, view: {} },
+  requestId: "ghostship-voyage",
+  props: { title: "Ghostship", isFocused: false, bodyColumns: 44, placement: "dock" as const, scroll: { offset: 0, bodyRows: 30 }, view: {} },
 };
 
 // Passes when a Text shows the text; fails listing what the drawing shows.
@@ -21,7 +21,7 @@ async function shows(ui: Pick<Mounted, "findAll">, text: string): Promise<void> 
   expect(all.some(t => t.includes(text)), `${text} in ${JSON.stringify(all)}`).toBe(true);
 }
 
-describe("the app overview pane", () => {
+describe("the pane shows the app", () => {
   test("shows the app name, the stage, what is built and the files", { options: { autoOpen: false } }, async ($, on) => {
     mock.clock(on);
     on("session.start", ($, e) => ({ cwd: e.cwd }));
@@ -49,12 +49,11 @@ describe("the app overview pane", () => {
     await shows(ui, "1/2 tasks · 50%");
     await shows(ui, "setup");
     await shows(ui, "store");
-    await shows(ui, "src/");
-    await shows(ui, "package.json");
+    await shows(ui, "2 at the top level");
   });
 });
 
-describe("the app overview pane outside a Ghostship project", () => {
+describe("the pane outside a Ghostship project", () => {
   test("shows the banner, the README pitch and no voyage yet", { options: { autoOpen: false } }, async ($, on) => {
     mock.clock(on);
     on("session.start", ($, e) => ({ cwd: e.cwd }));
@@ -69,7 +68,7 @@ describe("the app overview pane outside a Ghostship project", () => {
     await $.session.start({ surface: "terminal", isInteractive: true, cwd: "/work" });
 
     const ui = await $.ui.mount({ plugin: "ghostship", surface: "terminal", ...PANE });
-    await shows(ui, "v9.9.9 · app overview");
+    await shows(ui, "v9.9.9");
     await shows(ui, "Shop");
     await shows(ui, "A tiny shop for teams.");
     await shows(ui, "No voyage here yet");

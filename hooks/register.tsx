@@ -8,7 +8,7 @@ import {
 import type { VoyageSnap } from '../types'
 import { bandTree } from './band.tsx'
 import { GS, clock, fmtTokens } from './lib.ts'
-import { appEntries, appIdentity, featuresOf } from './overview.ts'
+import { appEntries, appIdentity } from './overview.ts'
 import { fitAgents, roleOf, stepOf, type Running } from './agents.ts'
 
 // Ghostship's two live surfaces: the band above the prompt (drawn by the hooks module on the terminal, one SVG on the
@@ -16,7 +16,6 @@ import { fitAgents, roleOf, stepOf, type Running } from './agents.ts'
 // + BOARD.md) — no engine, no hidden state. Outside a Ghostship project they show an idle line.
 
 const PANE = 'ghostship-voyage'
-const APP_PANE = 'ghostship-overview'
 const STATE_FILE = 'docs/ghostship/STATE.md'
 const BOARD_FILE = 'docs/ghostship/BOARD.md'
 const EVIDENCE_FILE = 'docs/ghostship/EVIDENCE.md'
@@ -26,8 +25,9 @@ const hiddenAtom = atom({ plugin: 'ghostship', key: 'hidden' } as const, false)
 const updateAtom = atom({ plugin: 'ghostship', key: 'update' } as const, null)
 const spendAtom = atom({ plugin: 'ghostship', key: 'spend' } as const, null)
 const evidenceAtom = atom({ plugin: 'ghostship', key: 'evidence' } as const, [])
-const foldedAtom = atom({ plugin: 'ghostship', key: 'folded' } as const, false)
-const foldedAppAtom = atom({ plugin: 'ghostship', key: 'foldedApp' } as const, false)
+// Where the pane is: open on the right, docked as a chip in the band (minimized), or closed. Kept across sessions.
+const paneAtom = atom({ plugin: 'ghostship', key: 'pane' } as const, 'open')
+const filesOpenAtom = atom({ plugin: 'ghostship', key: 'filesOpen' } as const, false)
 const boardOpenAtom = atom({ plugin: 'ghostship', key: 'boardOpen' } as const, true)
 const recorderOpenAtom = atom({ plugin: 'ghostship', key: 'recorderOpen' } as const, true)
 
@@ -88,16 +88,25 @@ async function seedSpend($: EngineInterface): Promise<void> {
 
 type Fs = { fs: { read: (p: string) => Promise<string> } }
 
-// Every pane carries the same two controls. Minimize folds it to its header row; Close removes it until the next session starts.
+// The pane's two controls, top right like a window: – docks it as a chip in the band above the prompt, ✕ closes it.
+// Plain buttons: the engine may take a dismiss-role button before its onPress runs, and these must save where the pane went.
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-function paneControls(ui: any, $: EngineInterface, id: string, folded: boolean, toggleFold: () => void): any {
+function paneControls(ui: any, $: EngineInterface): any {
   const { Box, Button } = ui
   return (
-    <Box flexDirection="row" gap={2} justifyContent="flex-end">
-      <Button key={`${id}-fold`} label={folded ? 'Expand' : 'Minimize'} plain dimColor onPress={toggleFold} />
-      <Button key={`${id}-close`} label="Close" plain dimColor role="dismiss" onPress={() => void $.ui.close({ id })} />
+    <Box key="controls" flexDirection="row" gap={2} justifyContent="flex-end">
+      <Button key="pane-dock" label=" – " plain dimColor onPress={() => void movePane($, 'docked')} />
+      <Button key="pane-close" label=" ✕ " plain dimColor onPress={() => void movePane($, 'closed')} />
     </Box>
   )
+}
+
+// Open, dock or close the pane, and remember it for the next session.
+async function movePane($: EngineInterface, to: 'open' | 'docked' | 'closed'): Promise<void> {
+  await update($, paneAtom, () => to)
+  try { await $.store.set('pane', to) } catch { /* this session only */ }
+  if (to === 'open') await $.ui.open({ id: PANE, title: 'Ghostship' })
+  else await $.ui.close({ id: PANE })
 }
 
 async function readState($: Fs): Promise<GhostshipState | null> {
@@ -216,15 +225,16 @@ export const register: Register = on => {
     try { await readVersion($) } catch { /* unknown version */ }
     try { await seedSpend($) } catch { /* no spend */ }
     // Each step is guarded on its own, so one failure never stops the band from coming up.
-    try { await $.command.register({ name: 'ghostship', description: 'Open the Ghostship voyage pane', immediate: true }) } catch { /* no command */ }
+    try { await $.command.register({ name: 'ghostship', description: 'Open the Ghostship pane', immediate: true }) } catch { /* no command */ }
     try { await $.command.register({ name: 'ghostship-band', description: 'Ghostship: show or hide the voyage band', immediate: true }) } catch { /* no command */ }
     try { await $.command.register({ name: 'ghostship-update', description: 'Ghostship: check for and install the latest version', immediate: true }) } catch { /* no command */ }
-    try { await $.command.register({ name: 'ghostship-overview', description: 'Ghostship: show the whole app — what it is, what is built, its files', immediate: true }) } catch { /* no command */ }
     try { const v = await $.store.get('hidden'); if (typeof v === 'boolean') await update($, hiddenAtom, () => v) } catch { /* nothing stored */ }
+    try { const p = await $.store.get('pane'); if (p === 'open' || p === 'docked' || p === 'closed') await update($, paneAtom, () => p) } catch { /* nothing stored */ }
     // The band above the prompt is the only live line; clear any status line an older version pinned.
     try { $.ui.status(undefined) } catch { /* no status line */ }
     try { await publish($) } catch { /* the render falls back to a direct read */ }
-    try { if (e.surface === 'terminal') void $.ui.open({ id: PANE, title: 'Ghostship' }) } catch { /* no pane */ }
+    // The pane opens where it was left: open on the right, docked as a chip in the band, or closed.
+    try { if (e.surface === 'terminal' && (await read($, paneAtom)) === 'open') void $.ui.open({ id: PANE, title: 'Ghostship' }) } catch { /* no pane */ }
     // Live refresh: the snapshot every 1.5 s, and a redraw of the band and panes every second.
     try { $.clock.every(1500, () => { ticks += 1; if (ticks % 6 === 1) void readBranch($).catch(() => undefined); void publish($).catch(() => undefined) }) } catch { /* no live refresh */ }
     try { $.clock.every(1000, () => $.ui.invalidate('ui.render')) } catch { /* no redraw timer */ }
@@ -256,13 +266,8 @@ export const register: Register = on => {
   }).catch(($, e, next) => next(e))
 
   on('command.run', { command: 'ghostship' }, async $ => {
-    await $.ui.open({ id: PANE, title: 'Ghostship' })
-    return { text: 'Ghostship voyage pane opened.' }
-  })
-
-  on('command.run', { command: 'ghostship-overview' }, async $ => {
-    await $.ui.open({ id: APP_PANE, title: 'Overview' })
-    return { text: 'Ghostship overview pane opened.' }
+    await movePane($, 'open')
+    return { text: 'Ghostship pane opened.' }
   })
 
   on('command.run', { command: 'ghostship-update' }, async $ => {
@@ -280,107 +285,6 @@ export const register: Register = on => {
   })
 
   // ---- the band, above the prompt ----
-  // The whole app at a glance. Reads the project's files as it draws, like the voyage pane does.
-  on('ui.render', { component: 'Pane', requestId: APP_PANE }, async ($, e) => {
-    const ui = $.ui.resolve(e)
-    const { Box, Text } = ui
-    const folded = await read($, foldedAppAtom)
-    const controls = paneControls(ui, $, APP_PANE, folded, () => void update($, foldedAppAtom, () => !folded))
-    const { name, about } = appIdentity(await tryRead($, 'package.json'), await tryRead($, 'README.md'))
-    if (folded) {
-      return <Box paddingX={1} justifyContent="space-between"><Text bold color={GS.clay}>{`⛴ ${name ?? 'App'} overview`}</Text>{controls}</Box>
-    }
-
-    const version = await versionOf($)
-    const st = await readState($)
-    const tasks = await readBoard($)
-    const files = appEntries(await tryList($))
-    const feats = featuresOf(tasks)
-    const done = tasks.filter(t => t.status === 'done' || t.status === 'merged').length
-    const parked = tasks.filter(t => t.status === 'parked').length
-    const stageIdx = st?.stage ? curIndexOf(st.stage) : -1
-    const stageLabel = st?.stage === 'done' ? 'Released' : st?.stage ? (VOYAGE[stageIdx]?.label ?? st.stage) : null
-
-    // One round card per section from 44 columns, as the voyage pane; the banner and progress cards carry the state colour.
-    const cols = e.props.bodyColumns ?? 40
-    const cards = cols >= 44
-    const inner = Math.max(10, cols - (cards ? 4 : 2))
-    const edge = st?.awaiting ? 'warning' : st?.stage === 'done' ? 'success' : 'claude'
-    const section = (key: string, color: string, body: any) => cards
-      ? <Box key={key} flexDirection="column" borderStyle="round" borderColor={color} paddingX={1}>{body}</Box>
-      : <Box key={key} flexDirection="column" paddingX={1}>{body}</Box>
-    // Rows each list may take, so the pane fits its height.
-    const room = Math.max(3, (e.viewport?.rows ?? 30) - 24)
-    const list = (key: string, items: string[], color: string, empty: string): any[] => items.length
-      ? [
-          ...items.slice(0, room).map((f, i) => <Text key={`${key}${i}`} color={color} wrap="truncate-end">{`  ${f}`}</Text>),
-          items.length > room ? <Text key={`${key}-more`} dimColor>{`  … ${items.length - room} more`}</Text> : null,
-        ]
-      : [<Text key={`${key}-none`} color={GS.subtle}>{`  ${empty}`}</Text>]
-
-    // Progress: tasks done once there is a board; before that, how far along the seven stages the voyage is.
-    const progress = !st?.stage
-      ? [
-          <Text key="ph" color="subtle">PROGRESS</Text>,
-          <Text key="pn" dimColor>No voyage here yet · /ghostship new to start one</Text>,
-        ]
-      : [
-          <Box key="ph" justifyContent="space-between">
-            <Text color="subtle">PROGRESS</Text>
-            <Text color="subtle">
-              {tasks.length
-                ? `${done}/${tasks.length} tasks · ${Math.round((done / tasks.length) * 100)}%`
-                : `stage ${Math.min(stageIdx + 1, VOYAGE.length)}/${VOYAGE.length}`}
-            </Text>
-          </Box>,
-          <Text key="pb" color={st.awaiting ? GS.amber : GS.clay}>
-            {tasks.length ? progressBar(done, tasks.length, inner) : progressBar(Math.max(0, stageIdx), VOYAGE.length, inner)}
-          </Text>,
-          parked ? <Text key="pk" color="warning">{`⚠ ${parked} parked`}</Text> : null,
-          st.awaiting ? <Text key="aw" color="warning">{`⏸ ${st.awaiting}`}</Text> : null,
-        ]
-
-    return (
-      <Box flexDirection="column" gap={cards ? 0 : 1}>
-        {section('o-banner', edge, [
-          controls,
-          <Text key="brand" bold color={GS.clay}>⛴  G H O S T S H I P</Text>,
-          <Text key="ver" dimColor>{version ? `v${version} · app overview` : 'app overview'}</Text>,
-        ])}
-        {section('o-app', 'subtle', [
-          <Box key="name" justifyContent="space-between">
-            <Text bold>{name ?? 'This app'}</Text>
-            {stageLabel ? <Text color={st?.awaiting ? 'warning' : 'claude'}>{`● ${stageLabel}`}</Text> : null}
-          </Box>,
-          about
-            ? <Text key="about" color={GS.mist} wrap="wrap">{about}</Text>
-            : <Text key="about" dimColor wrap="wrap">No description yet: add one to package.json, or open the README with a one-line pitch.</Text>,
-        ])}
-        {section('o-progress', edge, progress)}
-        {tasks.length ? section('o-feat', 'subtle', [
-          <Text key="bh" bold color={GS.green}>{`✓ Built  ${feats.built.length}`}</Text>,
-          ...list('b', feats.built, GS.green, 'nothing built yet'),
-          <Text key="ah" bold color={GS.amber}>{`● Building  ${feats.active.length}`}</Text>,
-          ...list('a', feats.active, GS.amber, 'nothing in progress'),
-          <Text key="qh" bold color={GS.mist}>{`○ Planned  ${feats.planned.length}`}</Text>,
-          ...list('q', feats.planned, GS.mist, 'nothing planned'),
-        ]) : null}
-        {section('o-files', 'subtle', [
-          <Box key="fh" justifyContent="space-between">
-            <Text color="subtle">FILES</Text>
-            <Text color="subtle">{`${files.length} at the top level`}</Text>
-          </Box>,
-          ...(files.length
-            ? files.slice(0, room).map((f, i) => f.isDir
-              ? <Text key={`f${i}`} bold color={GS.mist}>{`  ${f.name}/`}</Text>
-              : <Text key={`f${i}`} color={GS.subtle}>{`  ${f.name}`}</Text>)
-            : [<Text key="f-none" dimColor>  no files</Text>]),
-          files.length > room ? <Text key="f-more" dimColor>{`  … ${files.length - room} more`}</Text> : null,
-        ])}
-      </Box>
-    )
-  })
-
   on('ui.render', { component: 'AbovePrompt' }, async ($, e, next) => {
     const drawn = await next(e)
     // Mods are a terminal (SSH) convenience only. On mobile/desktop app surfaces they never render —
@@ -425,8 +329,11 @@ export const register: Register = on => {
       }
       const inProject = !!(snap && snap.visible)
       const bordered = budget - used >= 3
+      // A docked (minimized) pane waits in the band as a chip; one click opens it again where it was.
+      const docked = (await read($, paneAtom)) === 'docked'
+      const chip = docked ? <Button key="gs-pane" label=" ▣ pane " variant="secondary" onPress={() => void movePane($, 'open')} /> : null
       // Inside the card: the border and padding take 4 columns, the ✕ takes 3.
-      const inner = Math.max(24, (e.props.bodyColumns || 80) - (bordered ? 4 : 0) - 3)
+      const inner = Math.max(24, (e.props.bodyColumns || 80) - (bordered ? 4 : 0) - 3 - (docked ? 9 : 0))
       const hide = <Button key="gs-band-x" label=" ✕" plain dimColor onPress={() => void setHidden($, true)} />
 
       const head = snap && inProject
@@ -441,7 +348,7 @@ export const register: Register = on => {
             {branch ? <Box flexShrink={0}><Text color={GS.subtle}>{`⎇ ${branch}`}</Text></Box> : null}
           </Box>
         )
-      const rows: unknown[] = [<Box key="gs-head" flexDirection="row" justifyContent="space-between">{head}{hide}</Box>]
+      const rows: unknown[] = [<Box key="gs-head" flexDirection="row" justifyContent="space-between">{head}{chip}{hide}</Box>]
       let room = budget - used - (bordered ? 3 : 1)
 
       // A STOP waiting on the owner stays until it is answered; otherwise a verdict shows for 20 seconds after it lands.
@@ -499,102 +406,113 @@ export const register: Register = on => {
     }
   })
 
-  // ---- the voyage pane, docked right ----
+  // ---- the Ghostship pane, docked right: the app, its voyage and its build in one view ----
   on('ui.render', { component: 'Pane', requestId: PANE }, async ($, e) => {
     const ui = $.ui.resolve(e)
     const { Box, Text, Button } = ui
-    const folded = await read($, foldedAtom)
-    // Read on every draw, so the pane shows the version actually loaded — a hot reload changes it at once.
+    const controls = paneControls(ui, $)
     const version = await versionOf($)
-    const label = version ? `⛴ GHOSTSHIP v${version}` : '⛴ GHOSTSHIP'
-    const controls = paneControls(ui, $, PANE, folded, () => void update($, foldedAtom, () => !folded))
-    if (folded) {
-      return <Box paddingX={1} justifyContent="space-between"><Text bold color={GS.clay}>{label}</Text>{controls}</Box>
-    }
     const spend = await read($, spendAtom)
     const evidence = await read($, evidenceAtom)
     const boardOpen = await read($, boardOpenAtom)
     const recorderOpen = await read($, recorderOpenAtom)
+    const filesOpen = await read($, filesOpenAtom)
     const st = await readState($)
-    if (!st || !st.stage) {
-      return (
-        <Box flexDirection="column" paddingX={1} gap={1}>
-          {controls}
-          <Text bold color={GS.clay}>{label}</Text>
-          <Text bold color={GS.clay}>No Ghostship project here yet.</Text>
-          <Text color={GS.mist}>Run /ghostship new to start one, or /ghostship-overview to see this app.</Text>
-        </Box>
-      )
-    }
-    const board = await readBoard($)
-    const cur = curIndexOf(st.stage)
-    const doneTasks = board.filter(t => t.status === 'done' || t.status === 'merged').length
-    const active = board.find(t => t.id === st.task)
+    const inProject = !!st?.stage
+    const board = inProject ? await readBoard($) : []
+    const { name, about } = appIdentity(await tryRead($, 'package.json'), await tryRead($, 'README.md'))
+    const files = appEntries(await tryList($))
+    const nowMs = await $.clock.now()
+    const agents = [...running.values()]
 
-    const voyageRows = voyageOf(st.stage).map((s, i) => {
-      const mk = statusMark(s.state === 'd' ? 'done' : s.state === 'c' ? 'current' : 'todo')
-      const isBuild = s.key === 'build' && s.state === 'c' && board.length > 0
-      return (
-        <Box key={s.key}>
-          <Text color={mk.color} bold={mk.bold} dimColor={s.state === 'd'}>{mk.glyph} {s.label}</Text>
-          {s.key === 'spec' && i < cur ? <Text color="subtle">  locked</Text> : null}
-          {isBuild ? <Text color="claude">{`  ${progressBar(doneTasks, board.length)} `}</Text> : null}
-          {isBuild ? <Text color="subtle">{`${doneTasks}/${board.length}`}</Text> : null}
-        </Box>
-      )
-    })
-
-    const boardRows: unknown[] = []
-    for (let i = 0; i < board.length; i += 2) {
-      const cell = (t: Task | undefined, k: string) => {
-        if (!t) return <Box key={k} flexGrow={1} />
-        const mk = statusMark(t.status)
-        return (
-          <Box key={k} flexGrow={1}>
-            <Text color={mk.color} bold={mk.bold} dimColor={t.status === 'done' || t.status === 'merged'}>{mk.glyph} {t.id}</Text>
-            <Text color="subtle">{` ${t.label}`}</Text>
-          </Box>
-        )
-      }
-      boardRows.push(<Box key={`r${i}`} gap={2}>{cell(board[i], `a${i}`)}{cell(board[i + 1], `b${i}`)}</Box>)
-    }
-
+    // One round card per section from 44 columns, as ruflo's console draws its sections; narrower, plain stacks.
+    const cols = e.props.bodyColumns ?? 40
+    const cards = cols >= 44
+    const inner = Math.max(10, cols - (cards ? 4 : 2))
+    const section = (key: string, edge: string, body: any) => cards
+      ? <Box key={key} flexDirection="column" borderStyle="round" borderColor={edge} paddingX={1}>{body}</Box>
+      : <Box key={key} flexDirection="column" paddingX={1}>{body}</Box>
     const head = (label: string, right?: string) => (
-      <Box justifyContent="space-between">
+      <Box key={`h-${label}`} justifyContent="space-between">
         <Text color="subtle">{label}</Text>
         {right ? <Text color="subtle">{right}</Text> : null}
       </Box>
     )
-    // A section header with a disclosure triangle, as What's Agent Doing's box has: ▸ folded, ▾ open.
+    // A section header that folds: ▾ open, ▸ folded.
     const disclosure = (label: string, isOpen: boolean, right: string, toggle: () => void) => (
-      <Box justifyContent="space-between">
+      <Box key={`d-${label}`} justifyContent="space-between">
         <Button plain dimColor label={`${isOpen ? '▾' : '▸'} ${label}`} onPress={toggle} />
         <Text color="subtle">{right}</Text>
       </Box>
     )
-    // Each section is its own round card from 44 columns, as ruflo's console draws its sections; narrower, plain stacks.
-    const cards = (e.props.bodyColumns ?? 0) >= 44
-    const section = (key: string, edge: string, body: any) => cards
-      ? <Box key={key} flexDirection="column" borderStyle="round" borderColor={edge} paddingX={1}>{body}</Box>
-      : <Box key={key} flexDirection="column">{body}</Box>
-    // The header card's border names the state at a glance: amber when the voyage waits on the owner, green when released.
-    const border = st.awaiting ? 'warning' : st.stage === 'done' ? 'success' : 'claude'
-    const nowMs = await $.clock.now()
-    const agents = [...running.values()]
+    // Rows each list may take, so the pane fits its height; the rest is counted.
+    const room = Math.max(3, (e.viewport?.rows ?? 30) - 26)
+    const capped = (key: string, rows: any[]): any[] =>
+      rows.length > room ? [...rows.slice(0, room), <Text key={`${key}-more`} dimColor>{`  … ${rows.length - room} more`}</Text>] : rows
+
+    // The state at a glance, on the banner's and the progress card's borders: amber waits on you, green is released.
+    const edge = st?.awaiting ? 'warning' : st?.stage === 'done' ? 'success' : 'claude'
+    const cur = inProject ? curIndexOf(st!.stage) : -1
+    const stageLabel = st?.stage === 'done' ? 'Released' : inProject ? (VOYAGE[cur]?.label ?? st!.stage) : null
+    const done = board.filter(t => t.status === 'done' || t.status === 'merged').length
+    const parked = board.filter(t => t.status === 'parked').length
+    const active = board.find(t => t.id === st?.task)
+
+    // Progress: tasks done once there is a board; before that, how far along the seven stages the voyage is.
+    const progress = !inProject
+      ? [head('PROGRESS'), <Text key="pn" dimColor>No voyage here yet · /ghostship new to start one</Text>]
+      : [
+          head('PROGRESS', board.length
+            ? `${done}/${board.length} tasks · ${Math.round((done / board.length) * 100)}%`
+            : `stage ${Math.min(cur + 1, VOYAGE.length)}/${VOYAGE.length}`),
+          <Text key="pb" color={st!.awaiting ? GS.amber : GS.clay}>
+            {board.length ? progressBar(done, board.length, inner) : progressBar(Math.max(0, cur), VOYAGE.length, inner)}
+          </Text>,
+          parked ? <Text key="pk" color="warning">{`⚠ ${parked} parked`}</Text> : null,
+          st!.awaiting ? <Text key="aw" color="warning">{`⏸ ${st!.awaiting}`}</Text> : null,
+        ]
+
+    const voyageRows = inProject ? voyageOf(st!.stage).map((s, i) => {
+      const mk = statusMark(s.state === 'd' ? 'done' : s.state === 'c' ? 'current' : 'todo')
+      return (
+        <Box key={s.key}>
+          <Text color={mk.color} bold={mk.bold} dimColor={s.state === 'd'}>{mk.glyph} {s.label}</Text>
+          {s.key === 'spec' && i < cur ? <Text color="subtle">  locked</Text> : null}
+          {s.key === 'spec' || s.key === 'release' ? <Text color={st!.awaiting && s.state === 'c' ? 'warning' : 'subtle'}>{`  ⏸ STOP ${s.key === 'spec' ? 1 : 2}`}</Text> : null}
+        </Box>
+      )
+    }) : []
+
+    // The board, grouped by what the tasks have become: built, being built, planned, parked.
+    const group = (key: string, title: string, glyph: string, color: string, tasks: Task[]) => tasks.length ? [
+      <Text key={`${key}-h`} bold color={color}>{`${glyph} ${title}  ${tasks.length}`}</Text>,
+      ...capped(key, tasks.map(t => <Text key={`${key}-${t.id}`} wrap="truncate-end">{`  ${t.id}  `}<Text color="subtle">{t.label}</Text></Text>)),
+    ] : []
+    const isBuilt = (t: Task) => t.status === 'done' || t.status === 'merged'
+    const isBuilding = (t: Task) => t.status === 'building' || t.status === 'judging' || t.status === 'doing'
+    const boardBody = [
+      ...group('gb', 'Built', '✓', GS.green, board.filter(isBuilt)),
+      ...group('ga', 'Building', '●', GS.amber, board.filter(isBuilding)),
+      ...group('gp', 'Planned', '○', GS.mist, board.filter(t => !isBuilt(t) && !isBuilding(t) && t.status !== 'parked')),
+      ...group('gk', 'Parked', '⚠', GS.amber, board.filter(t => t.status === 'parked')),
+    ]
 
     return (
-      <Box flexDirection="column" gap={cards ? 0 : 1} paddingX={cards ? 0 : 1}>
-        {section('s-head', border, [
+      <Box flexDirection="column" gap={cards ? 0 : 1}>
+        {section('s-banner', edge, [
           controls,
-          <Box key="title" justifyContent="space-between">
-            <Text color="claude" bold>{label}</Text>
-            <Text color={st.awaiting ? 'warning' : 'claude'}>
-              {st.awaiting ? '⏸ YOUR MOVE' : st.stage === 'done' ? '✓ RELEASED' : `● ${(st.stage || '').toUpperCase()}`}
-            </Text>
+          <Text key="brand" bold color={GS.clay}>⛴  G H O S T S H I P</Text>,
+          <Text key="ver" dimColor>{version ? `v${version}` : ' '}</Text>,
+          <Box key="app" justifyContent="space-between" marginTop={1}>
+            <Text bold>{name ?? 'This app'}</Text>
+            {stageLabel ? <Text color={st?.awaiting ? 'warning' : 'claude'}>{st?.awaiting ? '⏸ YOUR MOVE' : `● ${stageLabel}`}</Text> : null}
           </Box>,
-          st.awaiting ? <Text key="next" color="warning">{`next ⏸ ${st.awaiting}`}</Text> : null,
+          about
+            ? <Text key="about" color={GS.mist} wrap="wrap">{about}</Text>
+            : <Text key="about" dimColor wrap="wrap">No description yet: add one to package.json, or open the README with a one-line pitch.</Text>,
         ])}
-        {section('s-voyage', 'subtle', [head('VOYAGE', st.phase ? `PHASE ${st.phase}` : undefined), ...voyageRows])}
+        {section('s-progress', edge, progress)}
+        {inProject ? section('s-voyage', 'subtle', [head('VOYAGE', st!.phase ? `PHASE ${st!.phase}` : undefined), ...voyageRows]) : null}
         {agents.length ? section('s-agents', 'claude', [
           head('AGENTS', `${agents.length} at work`),
           ...agents.map((a, i) => {
@@ -608,16 +526,16 @@ export const register: Register = on => {
             )
           }),
         ]) : null}
-        {board.length > 0 ? section('s-board', 'subtle', [
-          disclosure('BOARD', boardOpen, `${board.length} TASKS`, () => void update($, boardOpenAtom, () => !boardOpen)),
-          ...(boardOpen ? boardRows : []),
-        ]) : null}
-        {active || st.red || st.green ? section('s-flight', 'subtle', [
+        {inProject && (active || st!.red || st!.green) ? section('s-flight', 'subtle', [
           head('IN FLIGHT', active ? `${active.id} · ${active.label}` : undefined),
-          st.builder ? <Text key="b" dimColor>{`builder ${st.builder}`}</Text> : null,
-          st.judge ? <Text key="j" color="claude" bold>{`◆ judge `}<Text dimColor>{st.judge}</Text></Text> : null,
-          st.red ? <Text key="r" color="error">{`red  ✗ `}<Text dimColor>{st.red}</Text></Text> : null,
-          st.green ? <Text key="g" color="success">{`green ✓ `}<Text dimColor>{st.green}</Text></Text> : null,
+          st!.builder ? <Text key="b" dimColor>{`builder ${st!.builder}`}</Text> : null,
+          st!.judge ? <Text key="j" color="claude" bold>{`◆ judge `}<Text dimColor>{st!.judge}</Text></Text> : null,
+          st!.red ? <Text key="r" color="error">{`red  ✗ `}<Text dimColor>{st!.red}</Text></Text> : null,
+          st!.green ? <Text key="g" color="success">{`green ✓ `}<Text dimColor>{st!.green}</Text></Text> : null,
+        ]) : null}
+        {board.length ? section('s-board', 'subtle', [
+          disclosure('BOARD', boardOpen, `${board.length} TASKS`, () => void update($, boardOpenAtom, () => !boardOpen)),
+          ...(boardOpen ? boardBody : []),
         ]) : null}
         {evidence && evidence.length ? section('s-rec', 'subtle', [
           disclosure('RECORDER', recorderOpen, `${evidence.length} verdicts`, () => void update($, recorderOpenAtom, () => !recorderOpen)),
@@ -629,7 +547,17 @@ export const register: Register = on => {
             </Box>
           ) : null,
         ]) : null}
-        {section('s-foot', 'subtle', [
+        {section('s-files', 'subtle', [
+          disclosure('FILES', filesOpen, `${files.length} at the top level`, () => void update($, filesOpenAtom, () => !filesOpen)),
+          ...(filesOpen
+            ? capped('f', files.length
+              ? files.map((f, i) => f.isDir
+                ? <Text key={`f${i}`} bold color={GS.mist}>{`  ${f.name}/`}</Text>
+                : <Text key={`f${i}`} color={GS.subtle}>{`  ${f.name}`}</Text>)
+              : [<Text key="f-none" dimColor>  no files</Text>])
+            : []),
+        ])}
+        {spend || inProject ? section('s-foot', 'subtle', [
           spend ? head('SPEND', spend.usd > 0 ? `$${spend.usd.toFixed(2)}` : 'local') : null,
           spend ? (
             <Box key="sp">
@@ -639,8 +567,8 @@ export const register: Register = on => {
               <Text color={spend.ctxPct >= 85 ? 'warning' : 'subtle'}>{`${spend.ctxPct}%`}</Text>
             </Box>
           ) : null,
-          <Text key="auto" color="subtle">{`autonomy ${st.autonomy || 'autopilot'}`}</Text>,
-        ])}
+          inProject ? <Text key="auto" color="subtle">{`autonomy ${st!.autonomy || 'autopilot'}`}</Text> : null,
+        ]) : null}
       </Box>
     )
   })
