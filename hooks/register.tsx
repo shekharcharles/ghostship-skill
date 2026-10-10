@@ -938,7 +938,7 @@ export const register: Register = on => {
       if (doing && room >= 1) {
         rows.push(
           <Box key="gs-think" flexDirection="row">
-            <Text color={GS.mist} wrap="truncate-end">{`${SPIN[Math.floor(nowMs / SPIN_MS) % SPIN.length]} ${doing}`}</Text>
+            <Text color={GS.mist} wrap="truncate-end">{`${SPIN[Math.floor(nowMs / SPIN_MS) % SPIN.length]} Main thread › ${doing}`}</Text>
           </Box>,
         )
         room -= 1
@@ -969,15 +969,17 @@ export const register: Register = on => {
 
       // One row per subagent at work: a spinner in the role's colour, its name, its step in words, its elapsed time.
       // Fixed parts never shrink; the step truncates. The newest rows are kept when there is no room for all.
-      const all = [...running.values()]
+      // Each running agent: its name, then what it is doing this moment (its own thinking, writing or tool call).
+      const all = [...running.entries()]
       const fit = fitAgents(all.length, room, MAX_AGENT_ROWS)
-      all.slice(all.length - fit.shown).forEach((a, i) => {
+      all.slice(all.length - fit.shown).forEach(([id, a], i) => {
         const role = roleOf(a.name)
         const color = role === 'judge' ? GS.amber : role === 'builder' ? GS.clay : GS.mist
+        const doing = doingOf(liveOf(id)) ?? a.label
         rows.push(
           <Box key={`gs-ag${i}`} flexDirection="row">
             <Box flexShrink={0}><Text color={color}>{`${SPIN[(t + i) % SPIN.length]} `}</Text><Text bold>{a.name.slice(0, 40)}</Text></Box>
-            <Text wrap="truncate-end">{` › ${a.label}`}</Text>
+            <Text wrap="truncate-end">{` › ${doing}`}</Text>
             <Box flexShrink={0}><Text dimColor>{`  ${clock(nowMs - a.startMs)}`}</Text></Box>
           </Box>,
         )
