@@ -62,4 +62,4 @@ The pane reads the project's own files (`package.json` or `README.md`, `docs/gho
 - `types/index.d.ts` — the `$.state` contract
 - `tests/` — `claude plugin test` suites
 
-Status: **0.6.3**, in active development. The earlier engine edition lives at github.com/shekharcharles/ghostship.
+Status: **0.6.4**, in active development. The earlier engine edition lives at github.com/shekharcharles/ghostship.

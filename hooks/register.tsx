@@ -823,7 +823,6 @@ export const register: Register = (on, options) => {
     const keep = await read($, keepWarmAtom)
     const refresh = await read($, lastRefreshAtom)
     const ttl = await ttlNow($)
-    const seenTtl = await read($, cacheTtlAtom)
     const cacheLeftMs = cacheLeft(nowMs, await read($, lastReplyAtAtom), ttl)
     const money = (v: number | null | undefined) => (v == null ? '—' : `$${v.toFixed(2)}`)
 
@@ -988,8 +987,8 @@ export const register: Register = (on, options) => {
         {section('s-cache', cacheLeftMs !== null && cacheLeftMs <= 0 ? 'warning' : 'subtle', [
           head('CACHE', working ? 'warm · a turn is running'
             : cacheLeftMs === null ? 'no reply yet'
-            : cacheLeftMs <= 0 ? 'cold' : `warm · ${countdown(cacheLeftMs)} left`),
-          <Text key="c-life" dimColor>{`lifetime ${ttl > 5 * 60_000 ? '1h' : '5m'} (${seenTtl ? 'the engine says' : 'the setting'})${lastHit !== null ? ` · last reply ${lastHit}% from cache` : ''}`}</Text>,
+            : cacheLeftMs <= 0 ? 'expired' : `expires in ${countdown(cacheLeftMs)}`),
+          <Text key="c-life" dimColor>{`each message resets it to ${ttl > 5 * 60_000 ? '1 hour' : '5 minutes'}${lastHit !== null ? ` · last reply ${lastHit}% from cache` : ''}`}</Text>,
           tokens ? (
             <Text key="c-cold" color={cacheLeftMs !== null && cacheLeftMs <= 0 ? 'warning' : 'subtle'}>
               {`${cacheLeftMs !== null && cacheLeftMs <= 0 ? 'next send writes' : 'once cold, the next send writes'} ${fmtK(tokens)} tokens again ≈ ${money(coldWriteUsd(lastModel, tokens, ttl))}`}
@@ -1002,14 +1001,14 @@ export const register: Register = (on, options) => {
           ) : null,
           <Box key="c-keep" flexDirection="row" justifyContent="space-between" marginTop={1}>
             <Box flexDirection="row" gap={1}>
-              <Text color="subtle">Keep warm</Text>
+              <Text color="subtle">Keep warm while away</Text>
               {[0, 2, 6].map(hrs => (
                 <Button key={`c-k${hrs}`} label={` ${hrs ? `${hrs}h` : 'Off'} `} {...((keep ? keep.hours : 0) === hrs ? { variant: 'primary' as const } : { plain: true, dimColor: true })} onPress={() => void setKeepWarm($, hrs)} />
               ))}
             </Box>
             <Button key="c-refresh" label=" ↻ refresh " plain dimColor onPress={() => void refreshCache($)} />
           </Box>,
-          keep ? <Text key="c-kl" dimColor>{`♨ ${span(keep.until - nowMs)} left · refreshes ${countdown(keepWarmLead(ttl))} before cold, each a small request`}</Text> : null,
+          keep ? <Text key="c-kl" dimColor>{`♨ keeping warm ${span(keep.until - nowMs)} more · a small refresh ${countdown(keepWarmLead(ttl))} before each expiry`}</Text> : null,
         ])}
         {section('s-spend', 'subtle', [
           head('SPEND', projectUsd != null ? `project ${money(projectUsd)}` : undefined),
