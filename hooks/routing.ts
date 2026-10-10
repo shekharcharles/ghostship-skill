@@ -45,3 +45,16 @@ export function judgeRetry(task: string | null, earlierAgentNames: readonly stri
   if (!task) return false
   return failedTasks.includes(task) || earlierAgentNames.some(n => /judge/i.test(n) && taskOf(n) === task)
 }
+
+const ROLE_NAME: Record<Role, string> = { grunt: 'Search', builder: 'Builder', judge: 'Judge' }
+
+/**
+ * What an agent is called in the pane: its role and the task it works on, with the task's own title, so the list says what is
+ * being built. A retried judge says so. An agent with no task id keeps its own short description.
+ */
+export function agentLabel(role: Role, task: string | null, title: string | undefined, retry: boolean, fallback: string): string {
+  const tail = retry ? ' (retry, Opus)' : ''
+  if (!task) return `${fallback}${tail}`
+  const what = title ? ` — ${title.length > 48 ? `${title.slice(0, 47)}…` : title}` : ''
+  return `${ROLE_NAME[role]} · ${task}${what}${tail}`
+}

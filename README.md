@@ -66,4 +66,4 @@ A project the earlier engine edition ran (a `.ghostship/` folder, the `gs` comma
 - `types/index.d.ts` — the `$.state` contract
 - `tests/` — `claude plugin test` suites
 
-Status: **0.7.4**, in active development. The earlier engine edition lives at github.com/shekharcharles/ghostship.
+Status: **0.7.5**, in active development. The earlier engine edition lives at github.com/shekharcharles/ghostship.

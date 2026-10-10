@@ -14,7 +14,7 @@ import {
   addStep, cacheLeft, coldWriteUsd, countdown, endAgent, fmtK, hitRate, keepWarmDue, keepWarmLead, limitsOf, splitSpend, modelLabel, projectTotal,
   refreshVerdict, rowParts, shouldWarn, span, ttlMs, usageUsd,
 } from './usage.ts'
-import { DEFAULT_ROUTING, ROLES, TIERS, cleanRouting, judgeRetry, modelFor, roleOf as routeRole, taskOf, type Role, type Tier } from './routing.ts'
+import { DEFAULT_ROUTING, ROLES, TIERS, agentLabel, cleanRouting, judgeRetry, modelFor, roleOf as routeRole, taskOf, type Role, type Tier } from './routing.ts'
 
 // Ghostship's two live surfaces: the band above the prompt (drawn by the hooks module on the terminal, one SVG on the
 // desktop) and the voyage pane docked right. Both only reflect the skill's own files (docs/ghostship/STATE.md
@@ -566,14 +566,16 @@ export const register: Register = on => {
     const routed = e.fork ? undefined : retry ? 'claude-opus-5-5' : modelFor(await read($, routingAtom), role)
     const result = await next(routed ? { ...e, model: routed } : e)
     if (result.agentId !== undefined) {
-      const name = e.description || e.name || 'Agent'
-      // A retried judge says so in the pane.
-      const shown = retry ? `${name} (retry, Opus)` : name
+      // Named for its role and task, with the task's title from BOARD.md, so the list says what it is building.
+      const id = taskOf(`${e.name ?? ''} ${e.description}`)
+      const board = id ? parseBoard((await tryRead($, BOARD_FILE)) ?? '') : []
+      const title = board.find(t => t.id === id)?.label
+      const shown = agentLabel(role, id, title, retry, e.description || e.name || 'Agent')
       const startMs = await $.clock.now()
       running.set(result.agentId, { name: shown, label: 'Getting started', startMs })
       // The ledger lists the agent from its spawn, before its first step has cost anything.
       const list = await read($, ledgerAtom)
-      await update($, ledgerAtom, () => [...list, { id: result.agentId!, name: `${shown}${e.name && !shown.includes(e.name) ? ` · ${e.name}` : ''}`, model: result.model ?? routed ?? null, running: true, startMs, endMs: null, input: 0, output: 0, steps: 0, usd: 0 }])
+      await update($, ledgerAtom, () => [...list, { id: result.agentId!, name: shown, model: result.model ?? routed ?? null, running: true, startMs, endMs: null, input: 0, output: 0, steps: 0, usd: 0 }])
     }
     return result
   }).catch(($, e, next) => next(e))

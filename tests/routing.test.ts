@@ -29,3 +29,15 @@ describe("which model each subagent runs on", () => {
     expect(judgeRetry(null, ["judge T005"], ["T005"])).toBe(false);
   });
 });
+
+import { agentLabel } from "../hooks/routing.ts";
+
+describe("what each agent is called in the pane", () => {
+  test("the role and the task, with the task's own title; a retried judge says so", () => {
+    expect(agentLabel("builder", "T025", "Retry the sign-in form", false, "x")).toBe("Builder · T025 — Retry the sign-in form");
+    expect(agentLabel("judge", "T025", "Retry the sign-in form", true, "x")).toBe("Judge · T025 — Retry the sign-in form (retry, Opus)");
+    expect(agentLabel("judge", "T025", undefined, false, "x")).toBe("Judge · T025");
+    expect(agentLabel("grunt", null, undefined, false, "Explore the repo")).toBe("Explore the repo");
+    expect(agentLabel("builder", "T030", "x".repeat(60), false, "x")).toMatch(/…$/);
+  });
+});
