@@ -153,15 +153,17 @@ async function publish($: EngineInterface): Promise<void> {
 }
 
 async function refreshStatus($: EngineInterface): Promise<void> {
-  const st = await readState($)
-  if (!st || !st.stage) { $.ui.status(undefined); return }
-  // One plain line under the prompt, the glance view when the band is hidden: version · stage · phase · task · STOP.
-  const i = curIndexOf(st.stage)
-  const parts = [installedVersion ? `⛴ v${installedVersion}` : '⛴', st.stage === 'done' ? 'released' : (VOYAGE[i]?.label ?? st.stage)]
-  if (st.phase) parts.push(`phase ${st.phase}`)
-  if (st.task) parts.push(st.task)
-  if (st.awaiting) parts.push(`⏸ ${st.awaiting}`)
-  $.ui.status(parts.join(' · '))
+  try {
+    const st = await readState($)
+    if (!st || !st.stage) { $.ui.status(undefined); return }
+    // One plain line under the prompt, the glance view when the band is hidden: version · stage · phase · task · STOP.
+    const i = curIndexOf(st.stage)
+    const parts = [installedVersion ? `⛴ v${installedVersion}` : '⛴', st.stage === 'done' ? 'released' : (VOYAGE[i]?.label ?? st.stage)]
+    if (st.phase) parts.push(`phase ${st.phase}`)
+    if (st.task) parts.push(st.task)
+    if (st.awaiting) parts.push(`⏸ ${st.awaiting}`)
+    $.ui.status(parts.join(' · '))
+  } catch (err) { $.ui.log(`ghostship status line: ${(err as Error).message}`, { to: "debug" }) }
 }
 
 async function setHidden($: EngineInterface, hidden: boolean): Promise<void> {
@@ -320,6 +322,7 @@ export const register: Register = on => {
 
     const ui = $.ui.resolve(e)
     const { Box, Button, Text } = ui
+    try {
 
     // An update notice with a one-click Update — shown whenever a newer version is published, even
     // outside a project.
@@ -369,6 +372,11 @@ export const register: Register = on => {
 
     if (!updateRow && !band && !waitRow) return drawn
     return <Box flexDirection="column">{drawn}{updateRow}{band}{waitRow}</Box>
+    } catch (err) {
+      const msg = (err as Error).message
+      $.ui.log(`ghostship band: ${msg}`, { to: "debug" })
+      return <Box flexDirection="column">{drawn}<Text color={GS.amber}>{`ghostship band error: ${msg}`}</Text></Box>
+    }
   })
 
   // ---- the voyage pane, docked right ----
