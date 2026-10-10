@@ -323,11 +323,27 @@ async function checkNow($: EngineInterface): Promise<void> {
   else $.ui.toast(`Ghostship ${r.installed} is the newest version.`)
 }
 
+// Runs the Claude CLI for the update. The engine's runner may not have the usual PATH, so the CLI is also tried at its install path
+// (~/.local/bin/claude); the result is the first that runs, so a missing CLI shows its own error.
+async function claudeCli($: EngineInterface, args: string[]): Promise<{ exitCode: number; stdout: string; stderr: string }> {
+  const home = (await $.env.get('HOME')) ?? ''
+  const bins = ['claude', ...(home ? [`${home}/.local/bin/claude`] : [])]
+  let last = { exitCode: 127, stdout: '', stderr: 'claude not found' }
+  for (const bin of bins) {
+    try {
+      const r = await $.process.run([bin, ...args], { timeoutMs: 120000 })
+      if (r.exitCode !== 127) return r
+      last = r
+    } catch (err) { last = { exitCode: 127, stdout: '', stderr: (err as Error).message } }
+  }
+  return last
+}
+
 async function doUpdate($: EngineInterface): Promise<void> {
   try {
     $.ui.toast('Ghostship: downloading the update…')
-    await $.process.run(['claude', 'plugin', 'marketplace', 'update', MARKET], { timeoutMs: 120000 })
-    const r = await $.process.run(['claude', 'plugin', 'update', PLUGIN], { timeoutMs: 120000 })
+    await claudeCli($, ['plugin', 'marketplace', 'update', MARKET])
+    const r = await claudeCli($, ['plugin', 'update', PLUGIN])
     if (r.exitCode !== 0) {
       $.ui.toast(`Ghostship update failed: ${(r.stderr || r.stdout || 'unknown').trim().slice(0, 160)}`)
       return
