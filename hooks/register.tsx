@@ -12,6 +12,7 @@ import { appEntries, appIdentity } from './overview.ts'
 import { fitAgents, roleOf, type Running } from './agents.ts'
 import { activityOf, partialArgsOf, thoughtOf, wordsAdded } from './activity.ts'
 import { DELETE_REFUSED, riskyDelete } from './guard.ts'
+import { GHOST_ART, GHOST_ART_WIDTH } from './art.ts'
 import {
   addStep, cacheLeft, coldWriteUsd, countdown, endAgent, fmtK, hitRate, keepWarmDue, keepWarmLead, limitsOf, splitSpend, modelLabel, projectTotal,
   refreshVerdict, rowParts, shouldWarn, span, ttlMs, usageUsd,
@@ -829,12 +830,19 @@ export const register: Register = on => {
 
       // Fit the row budget: the panel drops its two section headings first, then its own border.
       const room = budget - used
-      const base = 1 + (pIn ? 2 : 1) + 2 + 1
+      const panelWidth = Math.min(76, Math.max(40, (e.props.bodyColumns || 80) - 2))
+      const artOn = panelWidth >= GHOST_ART_WIDTH + 4 && room >= 1 + (pIn ? 2 : 1) + 2 + 1 + GHOST_ART.length + 4
+      const base = 1 + (pIn ? 2 : 1) + 2 + 1 + (artOn ? GHOST_ART.length : 0)
       const withHeads = room >= base + 2 + 2
       const pBordered = room >= base + (withHeads ? 2 : 0) + 2
       const rows: any[] = [
+        ...(artOn ? [
+          <Box key="p-art" flexDirection="column" alignItems="center">
+            {GHOST_ART.map((line, i) => <Text key={`pa${i}`} bold color={GS.clay}>{line}</Text>)}
+          </Box>,
+        ] : []),
         <Box key="p-head" flexDirection="row" justifyContent="space-between">
-          <Text bold color={GS.clay}>◆  G H O S T S H I P</Text>
+          {artOn ? <Box /> : <Text bold color={GS.clay}>◆  G H O S T S H I P</Text>}
           <Box flexDirection="row" gap={1} flexShrink={0}>
             <Text color={pst?.awaiting ? GS.amber : GS.mist}>{pst?.awaiting ? '⏸ your move' : where}</Text>
             <Button key="p-x" label=" ✕" plain dimColor onPress={() => void update($, panelOpenAtom, () => false)} />
@@ -881,7 +889,7 @@ export const register: Register = on => {
       ]
       if (room >= base) {
         used += base + (withHeads ? 2 : 0) + (pBordered ? 2 : 0)
-        const width = Math.min(72, Math.max(40, (e.props.bodyColumns || 80) - 2))
+        const width = panelWidth
         panel = pBordered
           ? <Box key="gs-panel" flexDirection="column" alignSelf="flex-end" width={width} borderStyle="round" borderColor={GS.clay} paddingX={1}>{rows}</Box>
           : <Box key="gs-panel" flexDirection="column" alignSelf="flex-end" width={width}>{rows}</Box>
@@ -1149,10 +1157,13 @@ export const register: Register = on => {
     const tab = (await read($, paneTabAtom)) ?? 'overview'
     const TABS = [['overview', 'Overview'], ['plan', 'Plan'], ['agents', 'Agents'], ['cost', 'Cost'], ['files', 'Files']] as const
     const tabBar = (
-      <Box key="tabs" flexDirection="row" gap={1}>
-        {TABS.map(([k, l]) => (
-          <Button key={`tab-${k}`} label={` ${l} `} {...(tab === k ? { variant: 'primary' as const } : { plain: true, dimColor: true })} onPress={() => void update($, paneTabAtom, () => k)} />
-        ))}
+      <Box key="tabs" flexDirection="row" justifyContent="space-between" gap={1}>
+        <Box flexDirection="row" gap={1}>
+          {TABS.map(([k, l]) => (
+            <Button key={`tab-${k}`} label={` ${l} `} {...(tab === k ? { variant: 'primary' as const } : { plain: true, dimColor: true })} onPress={() => void update($, paneTabAtom, () => k)} />
+          ))}
+        </Box>
+        {controls}
       </Box>
     )
     // The plan: every phase of the build, its tasks in order, and how many are running, done, to do or on hold.
@@ -1210,10 +1221,11 @@ export const register: Register = on => {
       <Box flexDirection="column" gap={cards ? 0 : 1}>
         {tabBar}
         {tab === 'overview' && section('s-banner', edge, [
-          controls,
-          <Text key="brand" bold color={GS.clay}>G H O S T S H I P</Text>,
+          cards && cols >= GHOST_ART_WIDTH + 6
+            ? <Box key="brand" flexDirection="column">{GHOST_ART.map((line, i) => <Text key={`ga${i}`} bold color={GS.clay}>{line}</Text>)}</Box>
+            : <Text key="brand" bold color={GS.clay}>G H O S T S H I P</Text>,
           <Text key="ver" dimColor>{version ? `v${version}` : ' '}</Text>,
-          <Box key="app" justifyContent="space-between" marginTop={1}>
+          <Box key="app" justifyContent="space-between">
             <Text bold>{name ?? 'This app'}</Text>
             {stageLabel ? <Text color={st?.awaiting ? 'warning' : 'claude'}>{st?.awaiting ? '⏸ YOUR MOVE' : `● ${stageLabel}`}</Text> : null}
           </Box>,
