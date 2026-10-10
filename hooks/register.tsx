@@ -146,9 +146,13 @@ async function publish($: EngineInterface): Promise<void> {
 async function refreshStatus($: EngineInterface): Promise<void> {
   const st = await readState($)
   if (!st || !st.stage) { $.ui.status(undefined); return }
+  // One plain line under the prompt, the glance view when the band is hidden: version · stage · phase · task · STOP.
   const i = curIndexOf(st.stage)
-  const label = st.stage === 'done' ? 'released' : `${VOYAGE[i]?.label ?? st.stage}${st.task ? ` · ${st.task}` : ''}`
-  $.ui.status(`⛴ ${label}`)
+  const parts = [installedVersion ? `⛴ v${installedVersion}` : '⛴', st.stage === 'done' ? 'released' : (VOYAGE[i]?.label ?? st.stage)]
+  if (st.phase) parts.push(`phase ${st.phase}`)
+  if (st.task) parts.push(st.task)
+  if (st.awaiting) parts.push(`⏸ ${st.awaiting}`)
+  $.ui.status(parts.join(' · '))
 }
 
 async function setHidden($: EngineInterface, hidden: boolean): Promise<void> {
