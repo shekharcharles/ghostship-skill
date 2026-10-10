@@ -1399,6 +1399,13 @@ export const register: Register = on => {
             </Box>
           )),
         ]) : null}
+        {tab === 'overview' && inProject && st && st.stage === 'done' ? section('s-round', RUFLO.amber, [
+          head('ALL TASKS DONE', 'released'),
+          <Box key="rd-row" flexDirection="row" justifyContent="space-between" gap={1}>
+            <Text>Brainstorm the next round, or stop here.</Text>
+            <Button key="rd-go" label=" start a new round " variant="primary" onPress={() => void $.prompt.fill({ text: `/${SKILL_COMMAND} round` }).catch(() => undefined)} />
+          </Box>,
+        ]) : null}
         {tab === 'overview' && inProject && st ? section('s-next', 'subtle', [
           head('NEXT STEPS', `${voyageOf(st.stage).filter(v => v.state === 'd').length} of ${voyageOf(st.stage).length} done`),
           ...voyageOf(st.stage).map(v => {

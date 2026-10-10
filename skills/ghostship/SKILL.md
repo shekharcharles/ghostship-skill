@@ -118,10 +118,23 @@ Other files: `PRD.md` · `spec.md` · `plan.md` (the pipeline artifacts) and `ta
 
 - **new** — a brand-new product. Start at the interview.
 - **adopt** — existing code: read it, then interview, then the same pipeline. **A project on the engine edition** (it has `.ghostship/state/state.json` and no `docs/ghostship/STATE.md`) is moved, not interviewed again: first stop its runner (`node .ghostship/core/runtime/gs.mjs autopilot stop`), then run `node <this skill's base directory>/scripts/from-engine.mjs` in the project. It writes `docs/ghostship/` (STATE, BOARD, EVIDENCE, and DECISIONS for any task the owner retired that others wait on), keeps the approved PRD and acceptance checks where they are (STATE.md names them; they stay approved, STOP 1 is passed), and takes the engine's hooks out of `.claude/settings.json`. Then go on as **resume**, reading the task files the engine wrote under `tasks/`. Never run `gs` again in that project.
-- **resume** — read `STATE.md` and continue from the current stage. Never redo an approved stage. No `docs/ghostship/STATE.md` but a `.ghostship/` folder means the engine edition: move it as in **adopt** first; never fall back to its `gs` commands.
+- **resume** — read `STATE.md` and continue from the current stage. Never redo an approved stage. When the stage is `done` (every task merged or parked, the release tagged), do not just say "complete": ask the owner once, with `AskUserQuestion`, whether to start a **new round** (recommended, if they have ideas) or to stop here. A new round is `round`. No `docs/ghostship/STATE.md` but a `.ghostship/` folder means the engine edition: move it as in **adopt** first; never fall back to its `gs` commands.
+- **round** — start a new round after a release (or when the owner has more ideas): brainstorm first, then PRD, spec (STOP 1), plan, tasks, build, release. See **A new round** below.
 - **status** — report stage, active task, what waits for the owner.
 - **add** / **change** — a new feature / a change to approved behaviour: reopen only the affected artifact (e.g. `spec.md`), re-approve it, rebuild only what changed.
 - **release** — assemble, verify, and tag the release automatically when the gate is green (no owner approval).
+
+## A new round
+
+A round adds to a finished project. Its tasks get the next numbers on the board, and the done tasks stay as history. Round N uses `docs/ghostship/ROUND-N.md`.
+
+1. **Brainstorm (interview stage).** The owner brings ideas, and you talk them through with them: ask what each one is for, challenge it, group related ones, and say what it would cost. You may ask the owner questions here, since nothing is building.
+2. **Conclude.** Write `ROUND-N.md`: each idea with its **name**, why, what it changes, what it reuses, and whether it applies at all. The owner decides each one: **keep**, **later** or **drop**. Nothing is built from an idea the owner has not kept.
+3. **PRD** for the kept ideas only, then **spec** with its acceptance criteria, named, and the live proof. **STOP 1**: the owner approves the spec. This is the one stop.
+4. **Plan, after approval.** Divide the work into **phases** in `plan.md`, each with its goal and its criteria. Only then write the tasks: one file each, named, appended to `BOARD.md` with the next numbers, and `STATE.md` moves `plan` → `tasks` → `build`.
+5. **Build and release** as in any round: unattended, released automatically when the gate is green.
+
+Never start a build without phases in `plan.md` and tasks on the board: the pane shows each stage, and a build that skips the plan is a bug.
 
 ## Interview (intake)
 
