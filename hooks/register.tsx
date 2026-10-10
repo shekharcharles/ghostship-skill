@@ -6,11 +6,11 @@ import {
   progressBar, statusMark, cmpVersion, type GhostshipState, type Task,
 } from './state.ts'
 import type { VoyageSnap } from '../types'
-import type { BandProps } from './band.tsx'
+import { bandTree, type BandProps } from './band.tsx'
 import { GS, fmtTokens } from './lib.ts'
 import { appEntries, appIdentity, featuresOf } from './overview.ts'
 
-// Ghostship's two live surfaces: the band above the prompt (animated Client on the terminal, one SVG on the
+// Ghostship's two live surfaces: the band above the prompt (drawn by the hooks module on the terminal, one SVG on the
 // desktop) and the voyage pane docked right. Both only reflect the skill's own files (docs/ghostship/STATE.md
 // + BOARD.md) — no engine, no hidden state. Inert outside a Ghostship project.
 
@@ -136,7 +136,7 @@ async function publish($: EngineInterface): Promise<void> {
   const now = await $.clock.now()
   try { await trackEvidence($, now) } catch { /* evidence is best-effort */ }
   const snap: VoyageSnap = st ? buildSnap(st, now) : { stages: [], curLabel: '', released: false, phase: null, task: null, stop: null, awaiting: false, activeMs: -1, visible: false }
-  // Publish on change only; the live clock ticks in the Client between publishes.
+  // Publish on change only; the band redraws each second between publishes.
   const key = JSON.stringify({ ...snap, activeMs: snap.activeMs >= 0 ? 'run' : 'none' })
   if (key === publishedKey) return
   publishedKey = key
@@ -204,7 +204,9 @@ export const register: Register = on => {
     try { await refreshStatus($) } catch { /* no status */ }
     try { await publish($) } catch { /* the render falls back to a direct read */ }
     try { if (e.surface === 'terminal') void $.ui.open({ id: PANE, title: 'Ghostship' }) } catch { /* no pane */ }
-    try { $.clock.every(1500, () => void publish($).catch(() => undefined)) } catch { /* no live refresh */ }
+    // Live refresh: the snapshot and status line every 1.5 s, and a redraw of the band and panes every second.
+    try { $.clock.every(1500, () => { void publish($).catch(() => undefined); void refreshStatus($).catch(() => undefined) }) } catch { /* no live refresh */ }
+    try { $.clock.every(1000, () => $.ui.invalidate('ui.render')) } catch { /* no redraw timer */ }
     // Check GitHub for a newer version, in the background; if there is one, a one-click Update row appears.
     void checkUpdate($).then(async () => { const u = await read($, updateAtom); if (u) $.ui.toast(`Ghostship ${u.latest} is available — click Update above the prompt, or /ghostship-update`) }).catch(() => undefined)
     return started
@@ -307,7 +309,8 @@ export const register: Register = on => {
     if (e.surface !== 'terminal') return drawn
     if (e.props.hasSurvey) return drawn
 
-    const { Box, Button, Client, Text } = $.ui.resolve(e)
+    const ui = $.ui.resolve(e)
+    const { Box, Button, Text } = ui
 
     // An update notice with a one-click Update — shown whenever a newer version is published, even
     // outside a project.
@@ -334,12 +337,11 @@ export const register: Register = on => {
           stages: snap.stages, curLabel: snap.curLabel, released: snap.released,
           phase: snap.phase, task: snap.task, stop: snap.stop, awaiting: snap.awaiting, activeMs: snap.activeMs, version: installedVersion,
         }
-        // Reserve a second row when the full voyage won't fit one line, so wrapped stages aren't clipped.
-        const est = 14 + snap.stages.reduce((n, s) => n + 3 + s.label.length, 0) + Math.max(0, snap.stages.length - 1) * 5 + 8 + (snap.task ? 12 : 0)
-        const rows = est > cols ? 2 : 1
+        // Drawn right here, not in a surface module: the band wraps to a second row by itself on a narrow terminal.
+        const t = Math.floor((await $.clock.now()) / 1000)
         band = (
           <Box key="gs-band" flexDirection="row">
-            <Client key="gs-band-c" module="./band.tsx" width={cols} height={rows} props={props} />
+            {bandTree(ui, props, cols, t, props.activeMs)}
             <Button key="gs-band-x" label="✕" plain dimColor role="dismiss" onPress={() => void setHidden($, true)} />
           </Box>
         )

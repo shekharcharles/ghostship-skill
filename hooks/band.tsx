@@ -1,7 +1,6 @@
-// Ghostship's terminal band: a Client surface module. It animates locally — the current stage breathes
-// and the active task's clock ticks — from the last snapshot the hooks published. It ALWAYS shows the full
-// seven-stage voyage with the two STOPs marked, wrapping to a second line when the terminal is narrow.
-import type { ClientModule, RenderElement } from 'claude-code'
+// Ghostship's band: the whole voyage above the prompt, drawn by the hooks module itself. It always shows the
+// seven stages with the two STOPs marked, wrapping to a second line when the terminal is narrow. The hooks module
+// redraws it each second (ui.invalidate), so the pulse and the elapsed clock stay live.
 
 import { GS, mix, clock } from './lib.ts'
 import type { StageState } from './state.ts'
@@ -18,35 +17,18 @@ export type BandProps = {
   version: string
 }
 
-type BandState = { t: number; base: number; at: number }
-
-let latest: BandProps = { stages: [], curLabel: '', released: false, phase: null, task: null, stop: null, awaiting: false, activeMs: -1 }
-
-const Band: ClientModule<BandProps, BandState> = (props, surface) => {
-  if (surface.state === undefined) {
-    surface.setState({ t: 0, base: props.activeMs, at: 0 })
-    surface.every(90, () => {
-      const s = surface.state
-      if (!s) return
-      const isNew = latest.activeMs !== s.base
-      surface.setState({ t: s.t + 1, base: latest.activeMs, at: isNew ? s.t + 1 : s.at })
-    })
-  }
-  latest = props
-  const st = surface.state ?? { t: 0, base: props.activeMs, at: 0 }
-  const { Box, Text } = surface.elements
-  const t = st.t
+/** The band as a tree: `ui` is the terminal's element table, `t` a frame counter that drives the pulse. */
+export function bandTree(ui: { Box: any; Text: any }, props: BandProps, width: number, t: number, elapsed: number): any {
+  const { Box, Text } = ui
   const pulse = 0.5 + 0.5 * Math.sin(t * 0.13)
   const curColor = mix(GS.clay, GS.clayLit, pulse)
-  const elapsed = props.activeMs >= 0 ? props.activeMs + Math.max(0, t - st.at) * 90 : -1
-  const width = Math.max(24, surface.columns || 80)
 
   // Which stop (if any) is waiting now: STOP 1 at the Spec stage, STOP 2 at Release.
   const stop1Hot = props.awaiting && props.curLabel === 'Spec'
   const stop2Hot = props.awaiting && (props.curLabel === 'Release' || props.released)
   const stopMark = (hot: boolean) => <Text color={hot ? mix(GS.amber, '#fff2d9', pulse * 0.5) : GS.subtle} bold={hot}>{' ⏸'}</Text>
 
-  const items: RenderElement[] = [<Text key="b" color={GS.clay} bold>⛴ Ghostship</Text>]
+  const items: any[] = [<Text key="b" color={GS.clay} bold>⛴ Ghostship</Text>]
   if (props.version) items.push(<Text key="ver" color={GS.subtle}>{` v${props.version}`}</Text>)
   items.push(<Text key="bs" color={GS.subtle}>{'  '}</Text>)
   props.stages.forEach((s, i) => {
@@ -76,5 +58,3 @@ const Band: ClientModule<BandProps, BandState> = (props, surface) => {
     </Box>
   )
 }
-
-export default Band
