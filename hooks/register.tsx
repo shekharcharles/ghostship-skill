@@ -24,6 +24,8 @@ const hiddenAtom = atom({ plugin: 'ghostship', key: 'hidden' } as const, false)
 const updateAtom = atom({ plugin: 'ghostship', key: 'update' } as const, null)
 const spendAtom = atom({ plugin: 'ghostship', key: 'spend' } as const, null)
 const evidenceAtom = atom({ plugin: 'ghostship', key: 'evidence' } as const, [])
+const foldedAtom = atom({ plugin: 'ghostship', key: 'folded' } as const, false)
+const foldedAppAtom = atom({ plugin: 'ghostship', key: 'foldedApp' } as const, false)
 
 // Self-update: where the plugin lives on GitHub and how it's installed. Overridable by env.
 // A hooks module runs without Node, so `process` may not exist: read the overrides only when it does.
@@ -59,6 +61,18 @@ async function seedSpend($: EngineInterface): Promise<void> {
 }
 
 type Fs = { fs: { read: (p: string) => Promise<string> } }
+
+// Every pane carries the same two controls. Minimize folds it to its header row; Close removes it until the next session starts.
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function paneControls(ui: any, $: EngineInterface, id: string, folded: boolean, toggleFold: () => void): any {
+  const { Box, Button } = ui
+  return (
+    <Box flexDirection="row" gap={2} justifyContent="flex-end">
+      <Button key={`${id}-fold`} label={folded ? 'Expand' : 'Minimize'} plain dimColor onPress={toggleFold} />
+      <Button key={`${id}-close`} label="Close" plain dimColor role="dismiss" onPress={() => void $.ui.close({ id })} />
+    </Box>
+  )
+}
 
 async function readState($: Fs): Promise<GhostshipState | null> {
   try { return parseState(await $.fs.read(STATE_FILE)) } catch { return null }
@@ -180,7 +194,7 @@ export const register: Register = on => {
     try { const v = await $.store.get('hidden'); if (typeof v === 'boolean') await update($, hiddenAtom, () => v) } catch { /* nothing stored */ }
     try { await refreshStatus($) } catch { /* no status */ }
     try { await publish($) } catch { /* the render falls back to a direct read */ }
-    try { if (e.surface === 'terminal' && await readState($)) void $.ui.open({ id: PANE, title: 'Ghostship' }) } catch { /* no pane */ }
+    try { if (e.surface === 'terminal') void $.ui.open({ id: PANE, title: 'Ghostship' }) } catch { /* no pane */ }
     try { $.clock.every(1500, () => void publish($).catch(() => undefined)) } catch { /* no live refresh */ }
     // Check GitHub for a newer version, in the background; if there is one, a one-click Update row appears.
     void checkUpdate($).then(async () => { const u = await read($, updateAtom); if (u) $.ui.toast(`Ghostship ${u.latest} is available — click Update above the prompt, or /ghostship-update`) }).catch(() => undefined)
@@ -218,7 +232,10 @@ export const register: Register = on => {
   // ---- the band, above the prompt ----
   // The whole app at a glance. Reads the project's files as it draws, like the voyage pane does.
   on('ui.render', { component: 'Pane', requestId: APP_PANE }, async ($, e) => {
-    const { Box, Text } = $.ui.resolve(e)
+    const ui = $.ui.resolve(e)
+    const { Box, Text } = ui
+    const folded = await read($, foldedAppAtom)
+    const controls = paneControls(ui, $, APP_PANE, folded, () => void update($, foldedAppAtom, () => !folded))
     const st = await readState($)
     const tasks = await readBoard($)
     const { name, about } = appIdentity(await tryRead($, 'package.json'), await tryRead($, 'README.md'))
@@ -228,8 +245,13 @@ export const register: Register = on => {
     const room = Math.max(5, (e.viewport?.rows ?? 30) - 16)
     const bar = progressBar(done, tasks.length, 12) || '░'.repeat(12)
 
+    if (folded) {
+      return <Box paddingX={1} justifyContent="space-between"><Text bold color={GS.clay}>◆ {name ?? 'App'} overview</Text>{controls}</Box>
+    }
+
     return (
       <Box flexDirection="column" paddingX={1}>
+        {controls}
         <Box flexDirection="row" justifyContent="space-between">
           <Text bold color={GS.clay}>◆ {name ?? 'App'} <Text color={GS.mist}>overview</Text></Text>
           <Text bold color={st?.awaiting ? GS.amber : GS.clay}>{st?.stage ?? 'no stage'}</Text>
@@ -321,12 +343,18 @@ export const register: Register = on => {
 
   // ---- the voyage pane, docked right ----
   on('ui.render', { component: 'Pane', requestId: PANE }, async ($, e) => {
-    const { Box, Text } = $.ui.resolve(e)
+    const ui = $.ui.resolve(e)
+    const { Box, Text } = ui
+    const folded = await read($, foldedAtom)
+    const controls = paneControls(ui, $, PANE, folded, () => void update($, foldedAtom, () => !folded))
+    if (folded) {
+      return <Box paddingX={1} justifyContent="space-between"><Text bold color={GS.clay}>◆ Ghostship</Text>{controls}</Box>
+    }
     const spend = await read($, spendAtom)
     const evidence = await read($, evidenceAtom)
     const st = await readState($)
     if (!st || !st.stage) {
-      return <Box paddingX={1}><Text color="subtle">Not a Ghostship project yet. Run /ghostship new.</Text></Box>
+      return <Box flexDirection="column" paddingX={1}>{controls}<Text color="subtle">Not a Ghostship project yet. Run /ghostship new.</Text></Box>
     }
     const board = await readBoard($)
     const cur = curIndexOf(st.stage)
@@ -370,6 +398,7 @@ export const register: Register = on => {
 
     return (
       <Box flexDirection="column" gap={1} paddingX={1}>
+        {controls}
         <Box justifyContent="space-between">
           <Text color="claude" bold>{installedVersion ? `⛴ GHOSTSHIP v${installedVersion}` : '⛴ GHOSTSHIP'}</Text>
           <Text color={st.awaiting ? 'warning' : 'claude'}>
