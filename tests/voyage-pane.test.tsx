@@ -82,7 +82,8 @@ describe("the voyage pane body", () => {
 
     await ui.press({ key: "pane-dock" });
     expect(store.get("pane")).toBe("docked");
-    expect(closed).toEqual(["ghostship-voyage"]);
+    // The first close is the cleanup at session start of the Overview pane older versions opened.
+    expect(closed).toEqual(["ghostship-overview", "ghostship-voyage"]);
 
     await ui.press({ key: "pane-close" });
     expect(store.get("pane")).toBe("closed");
