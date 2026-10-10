@@ -515,64 +515,75 @@ export const register: Register = on => {
         <Text color="subtle">{right}</Text>
       </Box>
     )
-    // The border names the state at a glance: amber when the voyage waits on the owner, green when released.
+    // Each section is its own round card from 44 columns, as ruflo's console draws its sections; narrower, plain stacks.
+    const cards = (e.props.bodyColumns ?? 0) >= 44
+    const section = (key: string, edge: string, body: any) => cards
+      ? <Box key={key} flexDirection="column" borderStyle="round" borderColor={edge} paddingX={1}>{body}</Box>
+      : <Box key={key} flexDirection="column">{body}</Box>
+    // The header card's border names the state at a glance: amber when the voyage waits on the owner, green when released.
     const border = st.awaiting ? 'warning' : st.stage === 'done' ? 'success' : 'claude'
+    const nowMs = await $.clock.now()
+    const agents = [...running.values()]
 
     return (
-      <Box flexDirection="column" gap={1} paddingX={1} borderStyle="round" borderColor={border}>
-        {controls}
-        <Box justifyContent="space-between">
-          <Text color="claude" bold>{label}</Text>
-          <Text color={st.awaiting ? 'warning' : 'claude'}>
-            {st.awaiting ? '⏸ YOUR MOVE' : st.stage === 'done' ? '✓ RELEASED' : `● ${(st.stage || '').toUpperCase()}`}
-          </Text>
-        </Box>
-        <Box flexDirection="column">
-          {head('VOYAGE', st.phase ? `PHASE ${st.phase}` : undefined)}
-          {voyageRows}
-        </Box>
-        {board.length > 0 ? (
-          <Box flexDirection="column">
-            {disclosure('BOARD', boardOpen, `${board.length} TASKS`, () => void update($, boardOpenAtom, () => !boardOpen))}
-            {boardOpen ? boardRows : null}
-          </Box>
-        ) : null}
-        {active || st.red || st.green ? (
-          <Box flexDirection="column">
-            {head('IN FLIGHT', active ? `${active.id} · ${active.label}` : undefined)}
-            {st.builder ? <Text dimColor>{`builder ${st.builder}`}</Text> : null}
-            {st.judge ? <Text color="claude" bold>{`◆ judge `}<Text dimColor>{st.judge}</Text></Text> : null}
-            {st.red ? <Text color="error">{`red  ✗ `}<Text dimColor>{st.red}</Text></Text> : null}
-            {st.green ? <Text color="success">{`green ✓ `}<Text dimColor>{st.green}</Text></Text> : null}
-          </Box>
-        ) : null}
-        {evidence && evidence.length ? (
-          <Box flexDirection="column">
-            {disclosure('RECORDER', recorderOpen, `${evidence.length} verdicts`, () => void update($, recorderOpenAtom, () => !recorderOpen))}
-            {recorderOpen ? (
-              <Box flexWrap="wrap">
-                {evidence.slice(-6).map((v, i) => (
-                  <Text key={`ev${i}`} color={v.verdict === 'pass' ? 'success' : 'warning'}>{`${v.verdict === 'pass' ? '✓' : '⚠'} ${v.task}  `}</Text>
-                ))}
+      <Box flexDirection="column" gap={cards ? 0 : 1} paddingX={cards ? 0 : 1}>
+        {section('s-head', border, [
+          controls,
+          <Box key="title" justifyContent="space-between">
+            <Text color="claude" bold>{label}</Text>
+            <Text color={st.awaiting ? 'warning' : 'claude'}>
+              {st.awaiting ? '⏸ YOUR MOVE' : st.stage === 'done' ? '✓ RELEASED' : `● ${(st.stage || '').toUpperCase()}`}
+            </Text>
+          </Box>,
+          st.awaiting ? <Text key="next" color="warning">{`next ⏸ ${st.awaiting}`}</Text> : null,
+        ])}
+        {section('s-voyage', 'subtle', [head('VOYAGE', st.phase ? `PHASE ${st.phase}` : undefined), ...voyageRows])}
+        {agents.length ? section('s-agents', 'claude', [
+          head('AGENTS', `${agents.length} at work`),
+          ...agents.map((a, i) => {
+            const role = roleOf(a.name)
+            return (
+              <Box key={`pa${i}`} flexDirection="row">
+                <Box flexShrink={0}><Text color={role === 'judge' ? 'warning' : role === 'builder' ? 'claude' : 'subtle'}>{`${SPIN[(Math.floor(nowMs / 1000) + i) % SPIN.length]} `}</Text><Text bold>{a.name.slice(0, 30)}</Text></Box>
+                <Text wrap="truncate-end">{` › ${a.label}`}</Text>
+                <Box flexShrink={0}><Text dimColor>{`  ${clock(nowMs - a.startMs)}`}</Text></Box>
               </Box>
-            ) : null}
-          </Box>
-        ) : null}
-        {spend ? (
-          <Box flexDirection="column">
-            {head('SPEND', spend.usd > 0 ? `$${spend.usd.toFixed(2)}` : 'local')}
-            <Box>
+            )
+          }),
+        ]) : null}
+        {board.length > 0 ? section('s-board', 'subtle', [
+          disclosure('BOARD', boardOpen, `${board.length} TASKS`, () => void update($, boardOpenAtom, () => !boardOpen)),
+          ...(boardOpen ? boardRows : []),
+        ]) : null}
+        {active || st.red || st.green ? section('s-flight', 'subtle', [
+          head('IN FLIGHT', active ? `${active.id} · ${active.label}` : undefined),
+          st.builder ? <Text key="b" dimColor>{`builder ${st.builder}`}</Text> : null,
+          st.judge ? <Text key="j" color="claude" bold>{`◆ judge `}<Text dimColor>{st.judge}</Text></Text> : null,
+          st.red ? <Text key="r" color="error">{`red  ✗ `}<Text dimColor>{st.red}</Text></Text> : null,
+          st.green ? <Text key="g" color="success">{`green ✓ `}<Text dimColor>{st.green}</Text></Text> : null,
+        ]) : null}
+        {evidence && evidence.length ? section('s-rec', 'subtle', [
+          disclosure('RECORDER', recorderOpen, `${evidence.length} verdicts`, () => void update($, recorderOpenAtom, () => !recorderOpen)),
+          recorderOpen ? (
+            <Box key="ev" flexWrap="wrap">
+              {evidence.slice(-6).map((v, i) => (
+                <Text key={`ev${i}`} color={v.verdict === 'pass' ? 'success' : 'warning'}>{`${v.verdict === 'pass' ? '✓' : '⚠'} ${v.task}  `}</Text>
+              ))}
+            </Box>
+          ) : null,
+        ]) : null}
+        {section('s-foot', 'subtle', [
+          spend ? head('SPEND', spend.usd > 0 ? `$${spend.usd.toFixed(2)}` : 'local') : null,
+          spend ? (
+            <Box key="sp">
               <Text color="subtle">{`tokens `}</Text>
               <Text>{fmtTokens(spend.tokens)}</Text>
               <Text color="subtle">{`   context `}</Text>
               <Text color={spend.ctxPct >= 85 ? 'warning' : 'subtle'}>{`${spend.ctxPct}%`}</Text>
             </Box>
-          </Box>
-        ) : null}
-        <Box justifyContent="space-between">
-          <Text color="subtle">{`autonomy ${st.autonomy || 'autopilot'}`}</Text>
-          {st.awaiting ? <Text color="warning">{`next ⏸ ${st.awaiting}`}</Text> : null}
-        </Box>
+          ) : null,
+          <Text key="auto" color="subtle">{`autonomy ${st.autonomy || 'autopilot'}`}</Text>,
+        ])}
       </Box>
     )
   })

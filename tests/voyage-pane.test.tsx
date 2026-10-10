@@ -1,4 +1,4 @@
-import { describe, expect, test } from "claude-code/testing";
+import { describe, expect, mock, test } from "claude-code/testing";
 import type { Mounted } from "claude-code/testing";
 
 const STATE = ["stage: build", "phase: 2/3", "autonomy: auto", "active task: T005"].join("\n");
@@ -18,6 +18,7 @@ async function shows(ui: Pick<Mounted, "findAll">, text: string): Promise<void> 
 const BOARD = ["| Task | Phase | Status | Covers |", "|------|-------|--------|--------|", "| T001 | 1 | done | project setup |"].join("\n");
 
 function world(on: any, state: string | null, board: string | null = null) {
+  mock.clock(on);
   on("session.start", ($: any, e: any) => ({ cwd: e.cwd }));
   on("command.register", ($: any, e: any) => ({ value: { command: e.name } }));
   on("ui.open", () => ({ value: { isPlaced: true } }));
