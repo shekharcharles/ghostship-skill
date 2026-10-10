@@ -10,7 +10,10 @@ import { bandTree } from './band.tsx'
 import { GS, clock, fmtTokens } from './lib.ts'
 import { appEntries, appIdentity } from './overview.ts'
 import { fitAgents, roleOf, stepOf, type Running } from './agents.ts'
-import { cacheLeft, countdown, hitRate, limitsOf, rowParts, shouldWarn, ttlMs } from './usage.ts'
+import {
+  addStep, cacheLeft, coldWriteUsd, countdown, endAgent, fmtK, hitRate, keepWarmDue, keepWarmLead, limitsOf, modelLabel, projectTotal,
+  refreshVerdict, rowParts, shouldWarn, span, ttlMs, usageUsd,
+} from './usage.ts'
 
 // Ghostship's two live surfaces: the band above the prompt (drawn by the hooks module on the terminal, one SVG on the
 // desktop) and the voyage pane docked right. Both only reflect the skill's own files (docs/ghostship/STATE.md
@@ -31,6 +34,11 @@ const filesOpenAtom = atom({ plugin: 'ghostship', key: 'filesOpen' } as const, f
 const panelOpenAtom = atom({ plugin: 'ghostship', key: 'panelOpen' } as const, false)
 // When the main model last answered: the prompt cache's countdown runs from it. In $.state, so a reload keeps it.
 const lastReplyAtAtom = atom({ plugin: 'ghostship', key: 'lastReplyAt' } as const, 0)
+const keepWarmAtom = atom({ plugin: 'ghostship', key: 'keepWarm' } as const, null)
+const lastRefreshAtom = atom({ plugin: 'ghostship', key: 'lastRefresh' } as const, null)
+const cacheTtlAtom = atom({ plugin: 'ghostship', key: 'cacheTtl' } as const, null)
+const ledgerAtom = atom({ plugin: 'ghostship', key: 'ledger' } as const, [])
+const projectUsdAtom = atom({ plugin: 'ghostship', key: 'projectUsd' } as const, null)
 
 // What the panel offers: the build modes and autonomy levels the skill knows, and the skill's own slash command.
 const BUILD_MODES = ['tdd', 'verify', 'iterative'] as const
@@ -257,8 +265,14 @@ let lastHit: number | null = null
 let working = false
 let warnedFor = 0
 
-// Each second: the latest usage figures, the cold-cache warning a minute ahead, and a redraw.
-async function usageTick($: EngineInterface, ttl: number): Promise<void> {
+// The lifetime the engine reported on its last model switch wins over the setting, which covers sessions that never switch.
+let cacheSetting: string | undefined
+async function ttlNow($: EngineInterface): Promise<number> {
+  return ttlMs((await read($, cacheTtlAtom)) ?? cacheSetting)
+}
+
+// Each second: the latest usage figures, keep-warm when its window is open, the cold-cache warning a minute ahead, a redraw.
+async function usageTick($: EngineInterface): Promise<void> {
   try {
     const u = await $.session.usage()
     contextPct = u.context.percent ?? null
@@ -267,8 +281,13 @@ async function usageTick($: EngineInterface, ttl: number): Promise<void> {
     usd = u.cost?.usd ?? null
     limits = limitsOf(u.rateLimits)
   } catch { /* no reading yet */ }
+  const ttl = await ttlNow($)
+  const now = await $.clock.now()
+  const keep = await read($, keepWarmAtom)
+  if (keep && keep.until <= now) await update($, keepWarmAtom, () => null)
   const last = await read($, lastReplyAtAtom)
-  const left = cacheLeft(await $.clock.now(), last, ttl)
+  const left = cacheLeft(now, last, ttl)
+  if (keep && !refreshing && keepWarmDue({ nowMs: now, until: keep.until, left, ttl, working })) void refreshCache($, { keep: true })
   if (!working && shouldWarn(left, WARN_LEAD_MS, warnedFor, last)) {
     warnedFor = last
     $.ui.toast(`Prompt cache goes cold in ${countdown(left!)}: press ↻ cache in the Ghostship band, or send a message, to keep it warm.`)
@@ -276,20 +295,57 @@ async function usageTick($: EngineInterface, ttl: number): Promise<void> {
   $.ui.invalidate('ui.render')
 }
 
-// The band's ↻ cache: re-send the conversation's cached prefix with one tiny question, which restarts its lifetime.
-async function refreshCache($: EngineInterface, ttl: number): Promise<void> {
+let refreshing = false
+// ↻ cache, and keep-warm's refresh: one tiny question over the cached prefix, which restarts its lifetime. The reply's usage says
+// whether the cache was still warm (a read, and under a tenth of it written again) or had gone and was written again.
+async function refreshCache($: EngineInterface, opts: { keep?: boolean } = {}): Promise<void> {
+  if (refreshing) return
+  refreshing = true
   try {
+    const ttl = await ttlNow($)
     const r = await $.model.fork({ prompt: 'Reply with the single word OK.' })
-    if (r.isAnswered) {
-      const now = await $.clock.now()
-      await update($, lastReplyAtAtom, () => now)
-      $.ui.toast(`Prompt cache refreshed: warm for ${countdown(ttl)}.`)
-    } else {
-      $.ui.toast(r.reason === 'nothing-to-fork' ? 'No conversation to keep warm yet.' : `Could not refresh the prompt cache (${r.reason}).`)
+    if (!r.isAnswered) {
+      if (opts.keep) await update($, keepWarmAtom, () => null)
+      $.ui.toast(r.reason === 'nothing-to-fork' ? 'No conversation to keep warm yet.' : `Could not refresh the prompt cache (${r.reason}).${opts.keep ? ' Keep warm is off.' : ''}`)
+      return
     }
+    const now = await $.clock.now()
+    await update($, lastReplyAtAtom, () => now)
+    const v = refreshVerdict(r.usage, lastModel, ttl)
+    await update($, lastRefreshAtom, () => ({ at: now, ...v }))
+    const cost = v.usd === null ? '' : ` · $${v.usd.toFixed(2)}`
+    if (opts.keep && !v.warm) await update($, keepWarmAtom, () => null)
+    if (v.warm) $.ui.toast(`${opts.keep ? 'Kept warm' : 'Prompt cache kept warm'}: read ${fmtK(v.read)} tokens${cost}, warm for ${countdown(ttl)}.`)
+    else $.ui.toast(`${opts.keep ? 'Keep warm stopped: the cache had gone cold' : 'The prompt cache had gone cold'}: written again, ${fmtK(v.write)} tokens${cost}. Warm for ${countdown(ttl)} now.`)
   } catch (err) {
+    if (opts.keep) await update($, keepWarmAtom, () => null)
     $.ui.toast(`Could not refresh the prompt cache: ${(err as Error).message}`)
+  } finally {
+    refreshing = false
   }
+}
+
+// Keep warm: a window of 2h or 6h, or off. The refresh itself runs from the tick, a sixth of the cache's lifetime before cold.
+async function setKeepWarm($: EngineInterface, hours: number): Promise<void> {
+  const now = await $.clock.now()
+  await update($, keepWarmAtom, () => (hours ? { until: now + hours * 3_600_000, hours } : null))
+  $.ui.toast(hours ? `Keep warm on for ${hours}h: the cache is refreshed before it goes cold; each refresh is one small request.` : 'Keep warm off.')
+}
+
+// The project's spend: each session's cost under its id, kept in $.store by project folder, so the band shows every session together.
+let projectKey = ''
+let sessionId = ''
+async function recordSpend($: EngineInterface): Promise<void> {
+  if (!projectKey || !sessionId) return
+  let usdNow = usd
+  try { usdNow = (await $.session.usage()).cost?.usd ?? null } catch { /* keep the last reading */ }
+  // Without the engine's figure, the ledger's list-price estimate stands in.
+  const session = usdNow ?? (await read($, ledgerAtom)).reduce((s, a) => s + a.usd, 0)
+  // shortcut: two sessions of one project writing at once can lose one write; a per-session key would fix it if that shows up.
+  const stored = await $.store.get(projectKey)
+  const bySession = { ...(stored && typeof stored === 'object' ? stored as Record<string, number> : {}), [sessionId]: session }
+  await $.store.set(projectKey, bySession)
+  await update($, projectUsdAtom, () => projectTotal(bySession))
 }
 
 // The band's Summarize: the summary /compact makes, so a heavy conversation carries on lighter. Only between turns.
@@ -323,7 +379,7 @@ async function buildStatus($: Fs): Promise<{ unattended: boolean; left: Task[]; 
 }
 
 export const register: Register = (on, options) => {
-  const ttl = ttlMs(typeof options?.cacheTtl === 'string' ? options.cacheTtl : undefined)
+  cacheSetting = typeof options?.cacheTtl === 'string' ? options.cacheTtl : undefined
 
   on('session.start', async ($, e, next) => {
     const started = await next(e)
@@ -342,7 +398,14 @@ export const register: Register = (on, options) => {
     try { await $.ui.close({ id: 'ghostship-overview' }) } catch { /* none open */ }
     // Live refresh: the snapshot every 1.5 s, and a redraw of the band and panes every second.
     try { $.clock.every(1500, () => { ticks += 1; if (ticks % 6 === 1) void readBranch($).catch(() => undefined); void publish($).catch(() => undefined) }) } catch { /* no live refresh */ }
-    try { $.clock.every(1000, () => void usageTick($, ttl).catch(() => undefined)) } catch { /* no redraw timer */ }
+    try { $.clock.every(1000, () => void usageTick($).catch(() => undefined)) } catch { /* no redraw timer */ }
+    // The project's spend so far, every session together; this session adds itself after each turn.
+    try {
+      projectKey = `spend:${e.cwd}`
+      sessionId = await $.session.id()
+      const stored = await $.store.get(projectKey)
+      await update($, projectUsdAtom, () => projectTotal(stored && typeof stored === 'object' ? stored as Record<string, number> : {}))
+    } catch { /* no project spend */ }
     // Check GitHub for a newer version, in the background; if there is one, a one-click Update row appears.
     void checkUpdate($).then(async () => { const u = await read($, updateAtom); if (u) $.ui.toast(`Ghostship ${u.latest} is available — click Update above the prompt, or /ghostship-update`) }).catch(() => undefined)
     return started
@@ -355,21 +418,56 @@ export const register: Register = (on, options) => {
     const now = await $.clock.now()
     await update($, lastReplyAtAtom, () => now)
     await publish($)
+    await recordSpend($).catch(() => undefined)
     return next(e)
   }).catch(($, e, next) => next(e))
   // Every reply of the main model restarts the prompt cache's lifetime; subagents keep caches of their own.
+  // Each step, the main thread's or a subagent's, adds its tokens and list-price cost to the ledger the pane shows.
   on('turn.step', async function* ($, e, next) {
     const result = yield* next(e)
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const usage = result.usage as any
+    const now = await $.clock.now()
     if (e.agentId === undefined) {
-      const now = await $.clock.now()
       await update($, lastReplyAtAtom, () => now)
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const usage = result.usage as any
       lastModel = usage?.model ?? e.model
       lastHit = hitRate(usage)
     }
+    if (usage) {
+      const id = e.agentId ?? 'main'
+      const model = usage.model ?? e.model ?? null
+      const usdStep = usageUsd(usage, model, await ttlNow($))
+      const name = id === 'main' ? 'Main thread' : running.get(id)?.name ?? 'Agent'
+      const list = await read($, ledgerAtom)
+      await update($, ledgerAtom, () => addStep(list, { id, name, model, usage, usd: usdStep, nowMs: now }))
+    }
     return result
   })
+
+  // The cache's lifetime, when the engine says it: a model switch carries it.
+  on('classic.PostModelSwitch', async ($, e, next) => {
+    const r = await next(e)
+    if (e.cache_ttl === '5m' || e.cache_ttl === '1h') await update($, cacheTtlAtom, () => e.cache_ttl)
+    return r
+  }).catch(($, e, next) => next(e))
+
+  // A resumed session: the countdown runs from the transcript's last reply, and a cold resume says what its first message costs.
+  on('classic.SessionStart', async ($, e, next) => {
+    const r = await next(e)
+    if (e.source === 'clear') {
+      await update($, lastReplyAtAtom, () => 0)
+      await update($, keepWarmAtom, () => null)
+    } else if ((e.source === 'resume' || e.source === 'fork') && typeof e.seconds_since_last_response === 'number') {
+      const now = await $.clock.now()
+      await update($, lastReplyAtAtom, () => Math.max(1, now - e.seconds_since_last_response! * 1000))
+      if (e.model) lastModel = e.model
+      if (e.prompt_cache_likely_expired && e.context_tokens) {
+        const price = typeof e.estimated_cache_write_usd === 'number' ? e.estimated_cache_write_usd : coldWriteUsd(lastModel, e.context_tokens, await ttlNow($))
+        $.ui.toast(`Resuming cold: the first message writes ${fmtK(e.context_tokens)} tokens to the cache again${price != null ? `, about $${price.toFixed(2)}` : ''}. /clear and paste a summary if only the conclusions matter.`)
+      }
+    }
+    return r
+  }).catch(($, e, next) => next(e))
 
   on('tool.call', { tool: 'AskUserQuestion' }, async ($, e, next) => {
     if (!(await buildStatus($)).unattended) return next(e)
@@ -397,7 +495,14 @@ export const register: Register = (on, options) => {
   // ---- subagent rows: the builder, the judge and any other subagent, each with its current step ----
   on('agent.spawn', async ($, e, next) => {
     const result = await next(e)
-    if (result.agentId !== undefined) running.set(result.agentId, { name: e.description || e.name || 'Agent', label: 'Getting started', startMs: await $.clock.now() })
+    if (result.agentId !== undefined) {
+      const name = e.description || e.name || 'Agent'
+      const startMs = await $.clock.now()
+      running.set(result.agentId, { name, label: 'Getting started', startMs })
+      // The ledger lists the agent from its spawn, before its first step has cost anything.
+      const list = await read($, ledgerAtom)
+      await update($, ledgerAtom, () => [...list, { id: result.agentId!, name, model: null, running: true, startMs, endMs: null, input: 0, output: 0, steps: 0, usd: 0 }])
+    }
     return result
   }).catch(($, e, next) => next(e))
 
@@ -409,6 +514,9 @@ export const register: Register = (on, options) => {
 
   on('classic.SubagentStop', async ($, e, next) => {
     running.delete(e.agent_id)
+    const now = await $.clock.now()
+    const list = await read($, ledgerAtom)
+    await update($, ledgerAtom, () => endAgent(list, e.agent_id, now))
     return next(e)
   }).catch(($, e, next) => next(e))
 
@@ -581,10 +689,14 @@ export const register: Register = (on, options) => {
 
       // The usage line: context, the cache countdown with ↻ cache to refresh it, the 5-hour and weekly limits.
       if (room >= 1) {
+        const ttl = await ttlNow($)
+        const keep = await read($, keepWarmAtom)
         const parts = rowParts({
           model: lastModel, contextPct, tokens, window: windowSize, working, leadMs: WARN_LEAD_MS,
           fiveHour: limits.fiveHour, fiveHourResetsAt: limits.fiveHourResetsAt, week: limits.week,
           cacheLeftMs: cacheLeft(nowMs, await read($, lastReplyAtAtom), ttl), hitPct: lastHit, usd, nowMs: Date.now(),
+          coldUsd: coldWriteUsd(lastModel, tokens, ttl), keepWarmLeftMs: keep ? keep.until - nowMs : 0,
+          projectUsd: await read($, projectUsdAtom),
         })
         const look = (tone: string) => tone === 'dim' ? { dimColor: true }
           : tone === 'model' ? { color: GS.clay, bold: true }
@@ -598,7 +710,7 @@ export const register: Register = (on, options) => {
               ])}
             </Text>
             <Box flexDirection="row" gap={1} flexShrink={0}>
-              <Button key="gs-cache" label=" ↻ cache " plain dimColor onPress={() => void refreshCache($, ttl)} />
+              <Button key="gs-cache" label=" ↻ cache " plain dimColor onPress={() => void refreshCache($)} />
               <Button key="gs-sum" label=" Summarize " variant="secondary" onPress={() => void summarize($)} />
             </Box>
           </Box>,
@@ -693,7 +805,14 @@ export const register: Register = (on, options) => {
     const { name, about } = appIdentity(await tryRead($, 'package.json'), await tryRead($, 'README.md'))
     const files = appEntries(await tryList($))
     const nowMs = await $.clock.now()
-    const agents = [...running.values()]
+    const ledger = await read($, ledgerAtom)
+    const projectUsd = await read($, projectUsdAtom)
+    const keep = await read($, keepWarmAtom)
+    const refresh = await read($, lastRefreshAtom)
+    const ttl = await ttlNow($)
+    const seenTtl = await read($, cacheTtlAtom)
+    const cacheLeftMs = cacheLeft(nowMs, await read($, lastReplyAtAtom), ttl)
+    const money = (v: number | null | undefined) => (v == null ? '—' : `$${v.toFixed(2)}`)
 
     // One round card per section from 44 columns, as ruflo's console draws its sections; narrower, plain stacks.
     const cols = e.props.bodyColumns ?? 40
@@ -783,18 +902,30 @@ export const register: Register = (on, options) => {
         ])}
         {section('s-progress', edge, progress)}
         {inProject ? section('s-voyage', 'subtle', [head('VOYAGE', st!.phase ? `PHASE ${st!.phase}` : undefined), ...voyageRows]) : null}
-        {agents.length ? section('s-agents', 'claude', [
-          head('AGENTS', `${agents.length} at work`),
-          ...agents.map((a, i) => {
+        {ledger.length ? section('s-agents', 'claude', [
+          head('AGENTS', `${ledger.filter(a => a.running).length} running · ${ledger.filter(a => a.id !== 'main').length} spawned`),
+          // Running first, then by what each has cost: whether it runs, its name and model, tokens in and out, its price.
+          ...capped('ag', [...ledger].sort((a, b) => Number(b.running) - Number(a.running) || b.usd - a.usd).map((a, i) => {
             const role = roleOf(a.name)
+            const live = running.get(a.id)
+            const mark = a.id === 'main'
+              ? <Text color={GS.clay}>◆ </Text>
+              : a.running
+                ? <Text color={role === 'judge' ? 'warning' : role === 'builder' ? 'claude' : 'subtle'}>{`${SPIN[(Math.floor(nowMs / 1000) + i) % SPIN.length]} `}</Text>
+                : <Text color="success">✓ </Text>
             return (
-              <Box key={`pa${i}`} flexDirection="row">
-                <Box flexShrink={0}><Text color={role === 'judge' ? 'warning' : role === 'builder' ? 'claude' : 'subtle'}>{`${SPIN[(Math.floor(nowMs / 1000) + i) % SPIN.length]} `}</Text><Text bold>{a.name.slice(0, 30)}</Text></Box>
-                <Text wrap="truncate-end">{` › ${a.label}`}</Text>
-                <Box flexShrink={0}><Text dimColor>{`  ${clock(nowMs - a.startMs)}`}</Text></Box>
+              <Box key={`pa-${a.id}`} flexDirection="column">
+                <Box flexDirection="row" justifyContent="space-between">
+                  <Box flexShrink={1}>{mark}<Text bold wrap="truncate-end">{a.name.slice(0, 32)}</Text></Box>
+                  <Box flexShrink={0}><Text bold color={a.usd > 0 ? 'claude' : 'subtle'}>{money(a.usd)}</Text></Box>
+                </Box>
+                <Box flexDirection="row" justifyContent="space-between">
+                  <Text dimColor wrap="truncate-end">{`  ${a.id === 'main' ? 'this session' : a.running ? `running ${clock(nowMs - a.startMs)}${live ? ` › ${live.label}` : ''}` : `done in ${clock((a.endMs ?? nowMs) - a.startMs)}`}`}</Text>
+                  <Box flexShrink={0}><Text dimColor>{`${modelLabel(a.model) ?? ''}  ${fmtK(a.input)} in · ${fmtK(a.output)} out`}</Text></Box>
+                </Box>
               </Box>
             )
-          }),
+          })),
         ]) : null}
         {inProject && (active || st!.red || st!.green) ? section('s-flight', 'subtle', [
           head('IN FLIGHT', active ? `${active.id} · ${active.label}` : undefined),
@@ -827,8 +958,51 @@ export const register: Register = (on, options) => {
               : [<Text key="f-none" dimColor>  no files</Text>])
             : []),
         ])}
-        {spend || inProject ? section('s-foot', 'subtle', [
-          spend ? head('SPEND', spend.usd > 0 ? `$${spend.usd.toFixed(2)}` : 'local') : null,
+        {section('s-cache', cacheLeftMs !== null && cacheLeftMs <= 0 ? 'warning' : 'subtle', [
+          head('CACHE', working ? 'warm · a turn is running'
+            : cacheLeftMs === null ? 'no reply yet'
+            : cacheLeftMs <= 0 ? 'cold' : `warm · ${countdown(cacheLeftMs)} left`),
+          <Text key="c-life" dimColor>{`lifetime ${ttl > 5 * 60_000 ? '1h' : '5m'} (${seenTtl ? 'the engine says' : 'the setting'})${lastHit !== null ? ` · last reply ${lastHit}% from cache` : ''}`}</Text>,
+          tokens ? (
+            <Text key="c-cold" color={cacheLeftMs !== null && cacheLeftMs <= 0 ? 'warning' : 'subtle'}>
+              {`${cacheLeftMs !== null && cacheLeftMs <= 0 ? 'next send writes' : 'once cold, the next send writes'} ${fmtK(tokens)} tokens again ≈ ${money(coldWriteUsd(lastModel, tokens, ttl))}`}
+            </Text>
+          ) : null,
+          refresh ? (
+            <Text key="c-last" color={refresh.warm ? 'success' : 'warning'}>
+              {`${refresh.warm ? '✓' : '⚠'} last refresh ${span(nowMs - refresh.at)} ago: ${refresh.warm ? `read ${fmtK(refresh.read)}` : `was cold, wrote ${fmtK(refresh.write)}`} · ${money(refresh.usd)}`}
+            </Text>
+          ) : null,
+          <Box key="c-keep" flexDirection="row" justifyContent="space-between" marginTop={1}>
+            <Box flexDirection="row" gap={1}>
+              <Text color="subtle">Keep warm</Text>
+              {[0, 2, 6].map(hrs => (
+                <Button key={`c-k${hrs}`} label={` ${hrs ? `${hrs}h` : 'Off'} `} {...((keep ? keep.hours : 0) === hrs ? { variant: 'primary' as const } : { plain: true, dimColor: true })} onPress={() => void setKeepWarm($, hrs)} />
+              ))}
+            </Box>
+            <Button key="c-refresh" label=" ↻ refresh " plain dimColor onPress={() => void refreshCache($)} />
+          </Box>,
+          keep ? <Text key="c-kl" dimColor>{`♨ ${span(keep.until - nowMs)} left · refreshes ${countdown(keepWarmLead(ttl))} before cold, each a small request`}</Text> : null,
+        ])}
+        {section('s-spend', 'subtle', [
+          head('SPEND', projectUsd != null ? `project ${money(projectUsd)}` : undefined),
+          (() => {
+            const est = ledger.reduce((s, a) => s + a.usd, 0)
+            const main = ledger.find(a => a.id === 'main')?.usd ?? 0
+            const byModel = new Map<string, number>()
+            for (const a of ledger) if (a.usd > 0) byModel.set(modelLabel(a.model) ?? 'unknown', (byModel.get(modelLabel(a.model) ?? 'unknown') ?? 0) + a.usd)
+            return (
+              <Box key="sp-o" flexDirection="column">
+                <Box justifyContent="space-between"><Text color="subtle">this session</Text><Text bold>{money(usd ?? est)}</Text></Box>
+                <Box justifyContent="space-between"><Text color="subtle">  main thread</Text><Text>{money(main)}</Text></Box>
+                <Box justifyContent="space-between"><Text color="subtle">  subagents</Text><Text>{money(est - main)}</Text></Box>
+                {[...byModel].map(([m, v]) => (
+                  <Box key={`sp-m-${m}`} justifyContent="space-between"><Text dimColor>{`  on ${m}`}</Text><Text dimColor>{money(v)}</Text></Box>
+                ))}
+                <Text dimColor wrap="wrap">{usd != null ? 'Session total from Claude Code; the split is at list price.' : 'Estimated at list price.'}</Text>
+              </Box>
+            )
+          })(),
           spend ? (
             <Box key="sp">
               <Text color="subtle">{`tokens `}</Text>
@@ -838,7 +1012,7 @@ export const register: Register = (on, options) => {
             </Box>
           ) : null,
           inProject ? <Text key="auto" color="subtle">{`autonomy ${st!.autonomy || 'autopilot'}`}</Text> : null,
-        ]) : null}
+        ])}
       </Box>
     )
   })

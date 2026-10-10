@@ -33,7 +33,15 @@ Then in any project: `/ghostship new` (or `adopt`, `resume`).
 
 The pane opens when you ask: `/ghostship`, or **Open** in the control panel. Its `–` minimizes it to the `◆ Ghostship` button; the panel opens it again.
 
-The band's second line is your usage: the model, a context bar with the tokens used out of the window, the 5-hour use and when it resets, the weekly use, the prompt-cache countdown (⏳) and hit rate, and what the session has cost. **↻ cache** keeps the cache warm (one tiny request over the cached conversation), and a toast warns a minute before it goes cold; **Summarize** condenses a heavy conversation the way `/compact` does. The countdown runs from the last reply; set the cache lifetime (`5m` or `1h`) in the plugin's settings.
+The band's second line is your usage: the model, **what this project has cost across all its sessions** (and this session), a context bar with the tokens used out of the window, the 5-hour use and when it resets, the weekly use, the prompt-cache countdown (⏳, with what the next send costs once it is cold) and hit rate. **↻ cache** keeps the cache warm (one tiny request over the cached conversation) and says whether it was still warm; a toast warns a minute before it goes cold; **Summarize** condenses a heavy conversation the way `/compact` does.
+
+The pane adds three cards:
+
+- **AGENTS** — the main thread and every subagent of this session: running (with its current step) or done, its model, tokens in and out, and what it has cost.
+- **CACHE** — warm or cold and for how long, the lifetime in use, what a cold send would write again and cost, the last refresh's receipt, and **Keep warm** (Off / 2h / 6h): while on, one small refresh goes out shortly before the cache would go cold (10 minutes ahead on a one-hour cache), and it stops by itself if a refresh finds the cache already gone.
+- **SPEND** — the project, this session, the main thread against the subagents, and the split by model.
+
+Prices are list prices (after [cache-tax](https://github.com/karanb192/cache-tax), MIT); the session total is Claude Code's own when it reports one. The cache lifetime defaults to 1h (a Claude subscription); set `5m` in the plugin's settings on an API key, and the engine's own figure wins whenever a model switch reports it. A resumed session that comes back cold says what its first message will cost.
 
 ## Unattended between the stops
 
@@ -51,4 +59,4 @@ The pane reads the project's own files (`package.json` or `README.md`, `docs/gho
 - `types/index.d.ts` — the `$.state` contract
 - `tests/` — `claude plugin test` suites
 
-Status: **0.5.1**, in active development. The earlier engine edition lives at github.com/shekharcharles/ghostship.
+Status: **0.5.2**, in active development. The earlier engine edition lives at github.com/shekharcharles/ghostship.

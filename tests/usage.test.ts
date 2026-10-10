@@ -1,6 +1,6 @@
 import { describe, expect, test } from "claude-code/testing";
 
-import { cacheLeft, cacheShort, countdown, fmtK, hitRate, limitsOf, modelLabel, rowParts, shouldWarn, ttlMs, untilReset } from "../hooks/usage.ts";
+import { addStep, cacheLeft, cacheShort, coldWriteUsd, countdown, endAgent, fmtK, hitRate, keepWarmDue, limitsOf, modelLabel, projectTotal, refreshVerdict, rowParts, shouldWarn, ttlMs, untilReset } from "../hooks/usage.ts";
 
 const NOW = Date.parse("2026-10-10T12:00:00Z");
 
@@ -70,5 +70,42 @@ describe("the band's usage line", () => {
     expect(rowParts({ ...base, cacheLeftMs: 30_000 }).at(-1)).toEqual({ text: "⏳ 0:30", tone: "warn" });
     expect(rowParts({ ...base, working: true, cacheLeftMs: null }).at(-1)).toEqual({ text: "⏳ warm", tone: "ok" });
     expect(rowParts({ ...base, contextPct: 92, cacheLeftMs: null })[0]!.tone).toBe("bad");
+  });
+
+  test("a cold cache's next send is priced at the model's write rate for the cache's lifetime", () => {
+    expect(coldWriteUsd("claude-opus-5-5", 1_000_000, 3_600_000)).toBe(10);
+    expect(coldWriteUsd("claude-opus-5-5", 1_000_000, 300_000)).toBe(6.25);
+    expect(coldWriteUsd("unknown-model", 1_000_000, 3_600_000)).toBe(null);
+    const cold = rowParts({ model: null, contextPct: null, working: false, leadMs: 60_000, fiveHour: null, week: null, hitPct: null, usd: null, nowMs: NOW, cacheLeftMs: -1, coldUsd: 4.01 });
+    expect(cold.at(-1)!.text).toBe("⏳ cold · next send ≈ $4.01");
+  });
+
+  test("a refresh that read the prefix kept it warm; one that wrote it again found it cold", () => {
+    const warm = refreshVerdict({ input_tokens: 10, output_tokens: 2, cache_read_input_tokens: 75_000, cache_creation_input_tokens: 40 }, "claude-opus-5-5", 3_600_000);
+    expect(warm.warm).toBe(true);
+    expect(Math.round(warm.usd! * 1e4)).toBe(380);
+    expect(refreshVerdict({ input_tokens: 10, output_tokens: 2, cache_read_input_tokens: 0, cache_creation_input_tokens: 75_000 }, null, 3_600_000).warm).toBe(false);
+  });
+
+  test("keep warm refreshes inside its window, near cold, never while a turn runs or once cold", () => {
+    const d = { nowMs: 0, until: 7_200_000, ttl: 3_600_000, working: false };
+    expect(keepWarmDue({ ...d, left: 9 * 60_000 })).toBe(true);
+    expect(keepWarmDue({ ...d, left: 11 * 60_000 })).toBe(false);
+    expect(keepWarmDue({ ...d, left: 0 })).toBe(false);
+    expect(keepWarmDue({ ...d, left: 9 * 60_000, working: true })).toBe(false);
+    expect(keepWarmDue({ ...d, left: 9 * 60_000, until: 0 })).toBe(false);
+  });
+
+  test("the ledger adds each agent's steps and marks it done; the project sums its sessions", () => {
+    const u = { input_tokens: 100, output_tokens: 50, cache_read_input_tokens: 900, cache_creation_input_tokens: 0 };
+    let l = addStep([], { id: "a1", name: "builder T005", model: "claude-sonnet-5-5", usage: u, usd: 0.1, nowMs: 5 });
+    l = addStep(l, { id: "a1", name: "Agent", model: null, usage: u, usd: 0.2, nowMs: 9 });
+    expect(l).toEqual([{ id: "a1", name: "builder T005", model: "claude-sonnet-5-5", running: true, startMs: 5, endMs: null, input: 2000, output: 100, steps: 2, usd: 0.30000000000000004 }]);
+    expect(endAgent(l, "a1", 20)[0]).toMatchObject({ running: false, endMs: 20 });
+    expect(addStep([], { id: "main", name: "Main thread", model: null, usage: u, usd: null, nowMs: 0 })[0]!.running).toBe(false);
+    expect(projectTotal({ s1: 12.4, s2: 0.6 })).toBe(13);
+    expect(projectTotal(undefined)).toBe(0);
+    const parts = rowParts({ model: "claude-opus-5-5", contextPct: 8, working: false, leadMs: 60_000, fiveHour: null, week: null, hitPct: null, usd: 0.42, nowMs: NOW, cacheLeftMs: null, projectUsd: 12.4 });
+    expect(parts[1]!.text).toBe("project $12.40 (session $0.42)");
   });
 });

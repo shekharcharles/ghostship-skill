@@ -12,6 +12,11 @@ export type VoyageSnap = {
   visible: boolean
 }
 
+export type AgentSpend = {
+  id: string; name: string; model: string | null; running: boolean; startMs: number; endMs: number | null
+  input: number; output: number; steps: number; usd: number
+}
+
 declare module 'claude-code' {
   interface PluginState {
     ghostship: {
@@ -23,7 +28,12 @@ declare module 'claude-code' {
       filesOpen: boolean       // the pane's FILES section is expanded
       panelOpen: boolean       // the control panel above the prompt is open (◆ Ghostship in the footer)
       lastReplyAt: number      // when the main model last answered ($.clock.now() ms; 0 before any): the cache countdown's start
-      boardOpen: boolean       // the voyage pane's BOARD section is expanded
+      keepWarm: { until: number; hours: number } | null  // the keep-warm window ($.clock.now() ms) and the length picked
+      lastRefresh: { at: number; warm: boolean; read: number; write: number; usd: number | null } | null  // the last ↻ cache or keep-warm refresh
+      ledger: AgentSpend[]                              // this session's spend by agent: the main thread and each subagent
+      projectUsd: number | null                          // every session of this project together (from $.store)
+      cacheTtl: '5m' | '1h' | null                      // the cache lifetime the engine last reported (a model switch carries it)
+      boardOpen: boolean      // the voyage pane's BOARD section is expanded
       recorderOpen: boolean    // the voyage pane's RECORDER section is expanded
     }
   }

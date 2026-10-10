@@ -31,10 +31,7 @@ export function cacheShort(ms: number): string {
 /** A span until a time, as "1h 9m" or "9m". */
 export function untilReset(resetsAt: string | undefined, nowMs: number): string | null {
   const at = resetsAt ? Date.parse(resetsAt) : NaN
-  if (!Number.isFinite(at)) return null
-  const mins = Math.max(0, Math.round((at - nowMs) / 60_000))
-  const h = Math.floor(mins / 60)
-  return h ? `${h}h ${mins % 60}m` : `${mins}m`
+  return Number.isFinite(at) ? span(at - nowMs) : null
 }
 
 /** The 5-hour and weekly windows' use and when the 5-hour one resets; null where there is no reading yet. */
@@ -64,6 +61,95 @@ export function hitRate(u: { input_tokens: number; cache_read_input_tokens: numb
   if (!u) return null
   const all = u.input_tokens + u.cache_read_input_tokens + u.cache_creation_input_tokens
   return all > 0 ? Math.round((u.cache_read_input_tokens / all) * 100) : null
+}
+
+// $ per million tokens: [cache read, 1h cache write, output], list prices September 2026, after cache-tax (MIT,
+// github.com/karanb192/cache-tax). Longer names first: a model id takes the first row it contains.
+const PRICES: [string, number, number, number][] = [
+  ['fable-5-1', 0.25, 20, 50],
+  ['fable-5', 1, 20, 50],
+  ['opus-5', 0.5, 10, 25],
+  ['opus-4', 0.5, 10, 25],
+  ['sonnet-5', 0.2, 4, 10],
+  ['sonnet', 0.3, 6, 15],
+  ['haiku', 0.1, 2, 5],
+]
+
+/** The model's price row, [read, write, output] per MTok, the write at the cache's own lifetime (5m writes cost 1.25x base, 1h 2x). */
+export function priceOf(model: string | null, ttl: number): [number, number, number] | null {
+  const m = (model ?? '').toLowerCase().replace(/[\s.]+/g, '-')
+  const row = PRICES.find(([name]) => m.includes(name))
+  return row ? [row[1], ttl > 5 * 60_000 ? row[2] : row[2] * 0.625, row[3]] : null
+}
+
+/** What re-caching a context costs once the cache is cold: every token written again. */
+export function coldWriteUsd(model: string | null, tokens: number | undefined, ttl: number): number | null {
+  const p = priceOf(model, ttl)
+  return p && tokens ? (tokens * p[1]) / 1e6 : null
+}
+
+export type Usage = { input_tokens: number; output_tokens: number; cache_read_input_tokens: number; cache_creation_input_tokens: number }
+
+/** What a call cost at list price: cache read, cache write, uncached input (the base rate, which the write rate is a multiple of), output. */
+export function usageUsd(u: Usage, model: string | null, ttl: number): number | null {
+  const p = priceOf(model, ttl)
+  if (!p) return null
+  const base = p[1] / (ttl > 5 * 60_000 ? 2 : 1.25)
+  return (u.cache_read_input_tokens * p[0] + u.cache_creation_input_tokens * p[1] + u.input_tokens * base + u.output_tokens * p[2]) / 1e6
+}
+
+/**
+ * What a refresh found: warm when it read the cached prefix and wrote under a tenth of that (only its own question);
+ * otherwise the cache had already gone and the refresh wrote it again.
+ */
+export function refreshVerdict(u: Usage, model: string | null, ttl: number): { warm: boolean; read: number; write: number; usd: number | null } {
+  const read = u.cache_read_input_tokens
+  const write = u.cache_creation_input_tokens
+  return { warm: read > 0 && write < 0.1 * read, read, write, usd: usageUsd(u, model, ttl) }
+}
+
+/** One agent's spend this session: the main thread ('main') or a subagent, its tokens and list-price cost so far. */
+export type AgentSpend = {
+  id: string; name: string; model: string | null; running: boolean; startMs: number; endMs: number | null
+  input: number; output: number; steps: number; usd: number
+}
+
+/** The ledger with one more step of an agent added: tokens in (uncached, cache read and cache write together), out, its cost. */
+export function addStep(list: readonly AgentSpend[], step: { id: string; name: string; model: string | null; usage: Usage; usd: number | null; nowMs: number }): AgentSpend[] {
+  const u = step.usage
+  const input = u.input_tokens + u.cache_read_input_tokens + u.cache_creation_input_tokens
+  const had = list.find(a => a.id === step.id)
+  const next: AgentSpend = had
+    ? { ...had, name: step.name === 'Agent' ? had.name : step.name, model: step.model ?? had.model, input: had.input + input, output: had.output + u.output_tokens, steps: had.steps + 1, usd: had.usd + (step.usd ?? 0) }
+    : { id: step.id, name: step.name, model: step.model, running: step.id !== 'main', startMs: step.nowMs, endMs: null, input, output: u.output_tokens, steps: 1, usd: step.usd ?? 0 }
+  return had ? list.map(a => (a.id === step.id ? next : a)) : [...list, next]
+}
+
+/** The ledger with an agent marked stopped. */
+export function endAgent(list: readonly AgentSpend[], id: string, nowMs: number): AgentSpend[] {
+  return list.map(a => (a.id === id && a.running ? { ...a, running: false, endMs: nowMs } : a))
+}
+
+/** The project's spend: every session's cost, as stored by session id. */
+export function projectTotal(bySession: Record<string, number> | undefined): number {
+  return Object.values(bySession ?? {}).reduce((sum, v) => sum + (typeof v === 'number' ? v : 0), 0)
+}
+
+/** How long before the cache goes cold a keep-warm refresh is sent: a sixth of its lifetime (10m of 1h), at least 30 s. */
+export function keepWarmLead(ttl: number): number {
+  return Math.max(30_000, ttl / 6)
+}
+
+/** Whether keep-warm refreshes now: its window is open, no turn runs, and the cache is still warm but close to cold. */
+export function keepWarmDue(d: { nowMs: number; until: number; left: number | null; ttl: number; working: boolean }): boolean {
+  return d.until > d.nowMs && !d.working && d.left !== null && d.left > 0 && d.left <= keepWarmLead(d.ttl)
+}
+
+/** A duration at a glance: 5h 10m, 9m. */
+export function span(ms: number): string {
+  const mins = Math.max(0, Math.round(ms / 60_000))
+  const h = Math.floor(mins / 60)
+  return h ? `${h}h ${mins % 60}m` : `${mins}m`
 }
 
 const toneOf = (pct: number): Tone => (pct >= 90 ? 'bad' : pct >= 75 ? 'warn' : 'ok')
@@ -97,10 +183,15 @@ export function rowParts(d: {
   hitPct: number | null
   usd: number | null
   nowMs: number
+  coldUsd?: number | null      // what the next send re-caches once cold
+  keepWarmLeftMs?: number      // the keep-warm window still open
+  projectUsd?: number | null   // every session of this project together
 }): Part[] {
   const parts: Part[] = []
   const model = modelLabel(d.model)
   if (model) parts.push({ text: model, tone: 'model' })
+  // The project's spend leads, so a narrow band keeps it: every session of this project, and this one.
+  if (d.projectUsd != null) parts.push({ text: `project $${d.projectUsd.toFixed(2)}${d.usd !== null ? ` (session $${d.usd.toFixed(2)})` : ''}`, tone: 'model' })
   if (d.contextPct === null) parts.push({ text: 'ctx —', tone: 'dim' })
   else {
     parts.push({ text: `${bar(d.contextPct)} ${Math.round(d.contextPct)}%`, tone: toneOf(d.contextPct) })
@@ -117,9 +208,10 @@ export function rowParts(d: {
     : d.cacheLeftMs === null
       ? { text: '⏳ —', tone: 'dim' }
       : d.cacheLeftMs <= 0
-        ? { text: '⏳ cold', tone: 'bad' }
+        ? { text: `⏳ cold${d.coldUsd ? ` · next send ≈ $${d.coldUsd.toFixed(2)}` : ''}`, tone: 'bad' }
         : { text: `⏳ ${cacheShort(d.cacheLeftMs)}`, tone: d.cacheLeftMs <= d.leadMs ? 'warn' : 'ok' })
+  if (d.keepWarmLeftMs && d.keepWarmLeftMs > 0) parts.push({ text: `♨ kept warm ${span(d.keepWarmLeftMs)}`, tone: 'ok' })
   if (d.hitPct !== null) parts.push({ text: `${d.hitPct}% hit`, tone: d.hitPct >= 50 ? 'ok' : 'warn' })
-  if (d.usd !== null) parts.push({ text: `$${d.usd.toFixed(2)}`, tone: 'dim' })
+  if (d.projectUsd == null && d.usd !== null) parts.push({ text: `$${d.usd.toFixed(2)}`, tone: 'dim' })
   return parts
 }
