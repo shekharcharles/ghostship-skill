@@ -26,14 +26,19 @@ interview ─▶ PRD.md ─▶ spec.md ─(STOP 1)─▶ plan.md ─▶ tasks/T#
 
 1. **Interview → nothing yet.** Understand intent (below). Only the owner can answer intent; for `adopt`, read the code first but never let it stand in for what the owner wants.
 2. **PRD.md** — *from the interview.* Vision · Users · Problem · Scope (in/out) · Features & flows (one `## heading` each) · Non-functional targets (numbers) · Success measures · Assumptions. Short sentences. Show the owner the headings + scope + success measures (offer the full doc), then continue — **not a stop.**
-3. **spec.md** — *from the PRD.* The detailed, testable specification. For each feature: exact behaviour, inputs/outputs, data shapes, APIs/CLI/UI surface, error cases, and the **architecture/design** that realises it (stack, components, the test command). End with **Acceptance criteria**: a numbered list (`A1`, `A2`, …), each one observable behaviour testable through the product's public surface, each citing the PRD feature it proves. This is the definition of done. **→ STOP 1: the owner approves `spec.md`.** On approval, freeze the acceptance criteria.
+3. **spec.md** — *from the PRD.* The detailed, testable specification. For each feature: exact behaviour, inputs/outputs, data shapes, APIs/CLI/UI surface, error cases, and the **architecture/design** that realises it (stack, components, the test command). End with **Acceptance criteria**: a numbered list (`A1`, `A2`, …), each one observable behaviour testable through the product's public surface, each citing the PRD feature it proves, each written as **Given / When / Then** and naming the **check** that proves it (the command, request or run). This is the definition of done.
+   **Spec gate — check it yourself before STOP 1, and fix any gap first:** every PRD feature has at least one criterion; every criterion names its check; every feature lists its error cases; every non-functional target is a number with a criterion that measures it. Only a spec that passes the gate goes to the owner. **→ STOP 1: the owner approves `spec.md`.** On approval, freeze the acceptance criteria.
 4. **plan.md** — *from the spec.* A phased implementation plan: ordered **phases**, each with a goal, the spec sections / acceptance criteria it implements, and how the phase is verified. Phases are sequenced by dependency (setup/scaffold first).
-5. **tasks/T###.md** — *from the plan.* One file per task, small enough for a single subagent: goal, the acceptance criteria it satisfies, the **failing test to write first**, allowed paths, and dependencies. Also write `BOARD.md` (every task, its phase, status `todo/building/judging/done/parked`, criteria covered). Every acceptance criterion must be covered by at least one task. A task that only scaffolds the project (runners, skeleton, a fake server) is a **setup task** — no failing test required.
-6. **Build (one task at a time, in the chosen `mode:`, unattended).** For each ready task: dispatch a **fresh builder subagent** (Agent tool) under the Builder Contract (Think → Write → Test-for-real → Review); when it reports green, dispatch a **fresh judge subagent** under the Judge Contract. On PASS, mark the task done in `BOARD.md`, commit, next task. On FAIL, hand the judge's reasons to a new builder for the same task; after 3 failed attempts, **park it** (status `parked` in `BOARD.md`, a one-line reason in `STATE.md`) and move to the next task. Never build two tasks at once. **Ask the owner nothing here — no questions, no batches of decisions, ever.**
+5. **tasks/T###.md** — *from the plan.* One file per task, small enough for a single subagent: goal, the acceptance criteria it satisfies, the **failing test to write first**, the **gate command** (the one command whose exit code proves the task, e.g. `npm test -- done.test.mjs`), allowed paths, and dependencies. Also write `BOARD.md` (every task, its phase, status `todo/building/judging/done/parked`, criteria covered). Every acceptance criterion must be covered by at least one task. A task that only scaffolds the project (runners, skeleton, a fake server) is a **setup task** — no failing test required.
+6. **Build (one task at a time, in the chosen `mode:`, unattended).** For each ready task: dispatch a **fresh builder subagent** (Agent tool) under the Builder Contract (Think → Write → Test-for-real → Review); when it reports green, dispatch a **fresh judge subagent** under the Judge Contract. On PASS, mark the task done in `BOARD.md`, append its line to `EVIDENCE.md`, commit, next task. On FAIL, hand the judge's reasons to a new builder for the same task; after 3 failed attempts, **park it** (status `parked` in `BOARD.md`, a one-line reason in `STATE.md`) and move to the next task. When a task is parked, also park every task that depends on it, reason `blocked by T###`, so nothing is built on a missing piece. Never build two tasks at once. **Ask the owner nothing here — no questions, no batches of decisions, ever.**
    - **A task that can't be done is parked, not escalated.** If a task needs to touch a file outside its stated paths, depends on a decision, or keeps failing the same way, that is a *parking* condition, not a reason to stop and ask. Park it with the reason and keep building the rest. The owner sees every parked task and its reason at STOP 2 and decides then.
    - If a whole class of tasks is wrong (e.g. the plan fenced several tasks off from the code they must change), fix it yourself by re-cutting those tasks from `spec.md`/`plan.md` and continuing — still without asking. Correcting your own plan is build work, not an owner decision.
    - The one hard rule: **between STOP 1 and STOP 2 the owner is never prompted.** If you are about to ask a question during the build, you have hit a parking condition instead — park and continue.
-7. **Release → STOP 2.** When every task is done or parked, run the full suite and the acceptance criteria, write a release summary (shipped / parked / results), and ask the owner to approve. On approval, tag it and report.
+7. **Release → STOP 2.** When every task is done or parked, run the full suite and every acceptance criterion's check yourself, then write the release summary:
+   - **Traceability:** one row per criterion — `A#` · the task(s) that cover it · its check · the result (`pass`, or `parked` with the reason). Every criterion appears; none is silently missing.
+   - **Shipped / parked:** what works now, and each parked task with its reason.
+   - **Release gate:** full suite green, every criterion `pass` or `parked`, README/docs describe what shipped. Fix what you can before asking.
+   Then ask the owner to approve. On approval, tag it and report.
 
 ## State lives in files (no hidden state)
 
@@ -68,6 +73,13 @@ Write `stage:` always; add the others when they apply and clear `awaiting:` the 
 ```
 
 Status is one of `done | building | judging | todo | parked | merged`. Update a task's status in place as it moves.
+
+**`EVIDENCE.md`** — the verdict log, one line per judged task, appended on every PASS and every park (the release summary's traceability is built from it):
+
+```
+T005 · PASS   · npm test -- done.test.mjs → exit 0 · suite 24/24 · 2026-10-10
+T008 · PARKED · blocked by T007
+```
 
 Other files: `PRD.md` · `spec.md` · `plan.md` (the pipeline artifacts) and `tasks/T###.md` (one per task). Update all of these **before** moving on — they are your crash-safety and let `resume` pick up exactly where you left off.
 
@@ -105,7 +117,7 @@ Hold every subagent to a contract. **Reject and redeploy any subagent that repor
 ### Builder Contract — Think → Write → Test → Review
 > You are building ONE task: `T###`. Read its `tasks/T###.md`, plus `spec.md` and `plan.md`, and note the build `mode:`.
 > 1. **Think.** In two lines: how you'll satisfy the acceptance criterion and what you'll change.
-> 2. **Write.** In `tdd` mode write a **failing test** first and paste the red output, then implement the smallest change inside the task's allowed paths. In `verify`/`iterative` mode implement the slice.
+> 2. **Write.** In `tdd` mode write a **failing test** first and paste the red output, then implement the smallest change inside the task's allowed paths. In `verify`/`iterative` mode implement the slice. **Never edit, skip or loosen the failing test to make it pass** — if the test itself is wrong, say so in your report and leave it.
 > 3. **Test it for real.** Don't stop at a unit assertion — actually RUN what the task delivers (the command, the endpoint, the agent against its target/fixture) and paste the real result, plus the full suite, lint and typecheck. In `iterative` mode, if the real result is wrong, improve and run again until the criterion holds.
 > 4. **Report** for review: files changed, the red→green evidence AND the real-run result, and anything you could not satisfy.
 > Report nothing as done without the real output that proves it — "the test passes" is not enough; "I ran it and here is what it did" is.
@@ -113,8 +125,9 @@ Hold every subagent to a contract. **Reject and redeploy any subagent that repor
 ### Judge Contract — the Review
 > You are judging task `T###` — you did NOT build it. Verify it independently:
 > 1. Read the diff and the task's acceptance criterion.
-> 2. **Run it yourself the way a user would** — the acceptance test and the real functionality — and paste the output.
-> 3. Check the behaviour is real (not a tautology or a stub) and nothing else regressed.
+> 2. **Run the task's gate command yourself** and paste its output and exit code. **The exit code decides first:** non-zero is FAIL, whatever else looks right. Zero is needed for PASS, but not enough.
+> 3. **Run it yourself the way a user would** — the real functionality, not just the test — and paste the output.
+> 4. Check the behaviour is real (not a tautology or a stub), nothing else regressed, and — in `tdd` mode — the failing test written first was not edited, skipped or loosened; if it was, FAIL.
 > Verdict: PASS or FAIL with specific reasons and evidence. When in doubt, FAIL.
 
 ## Never
@@ -125,3 +138,4 @@ Hold every subagent to a contract. **Reject and redeploy any subagent that repor
 - Never edit the approved acceptance criteria except through `/ghostship change`.
 - Never let a builder judge its own work — the judge is always a separate, fresh subagent.
 - Never report a build as passing on claims; require the test output.
+- Never pass a task whose gate command exits non-zero, and never let a builder weaken the failing test to get there.
