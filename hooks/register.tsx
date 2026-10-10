@@ -327,7 +327,7 @@ export const register: Register = on => {
     const updateRow = upd ? (
       <Box key="gs-upd" flexDirection="row">
         <Text color={GS.amber} bold>{`⬆ Ghostship ${upd.latest} available `}</Text>
-        <Button key="gs-upd-go" label=" Update " role="primary" onPress={() => void doUpdate($)} />
+        <Button key="gs-upd-go" label=" Update " variant="primary" onPress={() => void doUpdate($)} />
         <Button key="gs-upd-x" label=" ✕" plain dimColor role="dismiss" onPress={() => void update($, updateAtom, () => null)} />
       </Box>
     ) : null
@@ -360,7 +360,7 @@ export const register: Register = on => {
           waitRow = (
             <Box key="gs-wait" flexDirection="row" paddingX={1} gap={2}>
               <Text color={GS.amber} bold>{`⏸ ${snap.stop ?? 'waiting on you'}`}</Text>
-              <Button key="gs-wait-open" label=" open " hotkey="o" role="primary" onPress={() => void $.ui.open({ id: PANE, title: 'Ghostship' })} />
+              <Button key="gs-wait-open" label=" open " hotkey="o" variant="primary" onPress={() => void $.ui.open({ id: PANE, title: 'Ghostship' })} />
             </Box>
           )
         }
