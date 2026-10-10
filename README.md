@@ -39,7 +39,10 @@ The pane adds three cards:
 
 - **AGENTS** — the main thread and every subagent of this session: running (with its current step) or done, its model, tokens in and out, and what it has cost.
 - **CACHE** — warm or cold and for how long, the lifetime in use, what a cold send would write again and cost, the last refresh's receipt, and **Keep warm** (Off / 2h / 6h): while on, one small refresh goes out shortly before the cache would go cold (10 minutes ahead on a one-hour cache), and it stops by itself if a refresh finds the cache already gone.
+- **ROUTING** — which model each subagent role runs on (Haiku / Sonnet / Opus per role).
 - **SPEND** — the project, this session, the main thread against the subagents, and the split by model.
+
+**Smart routing.** The main thread (the orchestrator: interview, spec, plan, the STOP decisions) stays on the session's model, Opus, whose cache lasts the session. Each subagent is put on its role's model as it starts: searches and reading (`Explore`) on **Haiku**, **builders** and **judges** on **Sonnet**. The pane's **ROUTING** card changes any role's model, kept across sessions. Routing per subagent, not per step, matters: each model keeps its own cache, so switching the main thread to a cheaper model mid-conversation makes that model write the whole conversation again, which costs more than it saves.
 
 Prices are list prices (after [cache-tax](https://github.com/karanb192/cache-tax), MIT); the session total is Claude Code's own when it reports one. The cache lifetime defaults to 1h (a Claude subscription); set `5m` in the plugin's settings on an API key, and the engine's own figure wins whenever a model switch reports it. A resumed session that comes back cold says what its first message will cost.
 
@@ -54,9 +57,9 @@ The pane reads the project's own files (`package.json` or `README.md`, `docs/gho
 - `.claude-plugin/` — plugin and marketplace manifests
 - `skills/ghostship/SKILL.md` — the orchestrator skill
 - `hooks/register.tsx` — the one hooks module: the pane, the band, commands, update check
-- `hooks/state.ts`, `hooks/overview.ts`, `hooks/agents.ts` — pure helpers (parsing, grouping, step labels), no engine needed
+- `hooks/state.ts`, `hooks/overview.ts`, `hooks/agents.ts`, `hooks/usage.ts`, `hooks/routing.ts` — pure helpers (parsing, grouping, step labels), no engine needed
 - `hooks/band.tsx`, `hooks/lib.ts` — the band's voyage line and the palette
 - `types/index.d.ts` — the `$.state` contract
 - `tests/` — `claude plugin test` suites
 
-Status: **0.5.2**, in active development. The earlier engine edition lives at github.com/shekharcharles/ghostship.
+Status: **0.6.0**, in active development. The earlier engine edition lives at github.com/shekharcharles/ghostship.

@@ -14,6 +14,7 @@ import {
   addStep, cacheLeft, coldWriteUsd, countdown, endAgent, fmtK, hitRate, keepWarmDue, keepWarmLead, limitsOf, modelLabel, projectTotal,
   refreshVerdict, rowParts, shouldWarn, span, ttlMs, usageUsd,
 } from './usage.ts'
+import { DEFAULT_ROUTING, ROLES, TIERS, cleanRouting, modelFor, roleOf as routeRole, type Role, type Tier } from './routing.ts'
 
 // Ghostship's two live surfaces: the band above the prompt (drawn by the hooks module on the terminal, one SVG on the
 // desktop) and the voyage pane docked right. Both only reflect the skill's own files (docs/ghostship/STATE.md
@@ -39,6 +40,8 @@ const lastRefreshAtom = atom({ plugin: 'ghostship', key: 'lastRefresh' } as cons
 const cacheTtlAtom = atom({ plugin: 'ghostship', key: 'cacheTtl' } as const, null)
 const ledgerAtom = atom({ plugin: 'ghostship', key: 'ledger' } as const, [])
 const projectUsdAtom = atom({ plugin: 'ghostship', key: 'projectUsd' } as const, null)
+// Which model each subagent role runs on; in $.store too, so it holds across sessions.
+const routingAtom = atom({ plugin: 'ghostship', key: 'routing' } as const, DEFAULT_ROUTING)
 
 // What the panel offers: the build modes and autonomy levels the skill knows, and the skill's own slash command.
 const BUILD_MODES = ['tdd', 'verify', 'iterative'] as const
@@ -325,6 +328,13 @@ async function refreshCache($: EngineInterface, opts: { keep?: boolean } = {}): 
   }
 }
 
+// The pane's ROUTING card: one role's model, kept for this session and the next.
+async function setRouting($: EngineInterface, role: Role, tier: Tier): Promise<void> {
+  const next = { ...(await read($, routingAtom)), [role]: tier }
+  await update($, routingAtom, () => next)
+  await $.store.set('routing', next)
+}
+
 // Keep warm: a window of 2h or 6h, or off. The refresh itself runs from the tick, a sixth of the cache's lifetime before cold.
 async function setKeepWarm($: EngineInterface, hours: number): Promise<void> {
   const now = await $.clock.now()
@@ -390,6 +400,7 @@ export const register: Register = (on, options) => {
     try { await $.command.register({ name: 'ghostship', description: 'Open the Ghostship pane', immediate: true }) } catch { /* no command */ }
     try { await $.command.register({ name: 'ghostship-band', description: 'Ghostship: show or hide the voyage band', immediate: true }) } catch { /* no command */ }
     try { await $.command.register({ name: 'ghostship-update', description: 'Ghostship: check for and install the latest version', immediate: true }) } catch { /* no command */ }
+    try { const r = cleanRouting(await $.store.get('routing')); await update($, routingAtom, () => r) } catch { /* the default routing */ }
     try { const v = await $.store.get('hidden'); if (typeof v === 'boolean') await update($, hiddenAtom, () => v) } catch { /* nothing stored */ }
     // The band above the prompt is the only live line; clear any status line an older version pinned.
     try { $.ui.status(undefined) } catch { /* no status line */ }
@@ -493,15 +504,18 @@ export const register: Register = (on, options) => {
   on('session.measure', async ($, e, next) => { const r = await next(e); try { await update($, spendAtom, () => toSpend(e as any)) } catch { /* ignore */ } return r }).catch(($, e, next) => next(e))
 
   // ---- subagent rows: the builder, the judge and any other subagent, each with its current step ----
+  // Smart routing: each subagent runs on its role's model (search and reading on Haiku, building and judging on Sonnet, unless
+  // the ROUTING card says otherwise). A fork shares the main thread's conversation and model, so it is left alone.
   on('agent.spawn', async ($, e, next) => {
-    const result = await next(e)
+    const routed = e.fork ? undefined : modelFor(await read($, routingAtom), routeRole(e.subagentType, e.name, e.description))
+    const result = await next(routed ? { ...e, model: routed } : e)
     if (result.agentId !== undefined) {
       const name = e.description || e.name || 'Agent'
       const startMs = await $.clock.now()
       running.set(result.agentId, { name, label: 'Getting started', startMs })
       // The ledger lists the agent from its spawn, before its first step has cost anything.
       const list = await read($, ledgerAtom)
-      await update($, ledgerAtom, () => [...list, { id: result.agentId!, name, model: null, running: true, startMs, endMs: null, input: 0, output: 0, steps: 0, usd: 0 }])
+      await update($, ledgerAtom, () => [...list, { id: result.agentId!, name, model: result.model ?? routed ?? null, running: true, startMs, endMs: null, input: 0, output: 0, steps: 0, usd: 0 }])
     }
     return result
   }).catch(($, e, next) => next(e))
@@ -806,6 +820,7 @@ export const register: Register = (on, options) => {
     const files = appEntries(await tryList($))
     const nowMs = await $.clock.now()
     const ledger = await read($, ledgerAtom)
+    const routing = await read($, routingAtom)
     const projectUsd = await read($, projectUsdAtom)
     const keep = await read($, keepWarmAtom)
     const refresh = await read($, lastRefreshAtom)
@@ -927,6 +942,20 @@ export const register: Register = (on, options) => {
             )
           })),
         ]) : null}
+        {section('s-route', 'subtle', [
+          head('ROUTING', 'model per agent'),
+          <Box key="r-main" justifyContent="space-between"><Text>Main thread</Text><Text dimColor>{`${modelLabel(lastModel) ?? 'the session model'} · decisions, spec, plan`}</Text></Box>,
+          ...ROLES.map(role => (
+            <Box key={`r-${role}`} justifyContent="space-between">
+              <Text>{role === 'grunt' ? 'Search & reading' : role === 'builder' ? 'Builders' : 'Judges'}</Text>
+              <Box flexDirection="row" gap={1}>
+                {TIERS.map(tier => (
+                  <Button key={`r-${role}-${tier}`} label={` ${tier[0]!.toUpperCase()}${tier.slice(1)} `} {...(routing[role] === tier ? { variant: 'primary' as const } : { plain: true, dimColor: true })} onPress={() => void setRouting($, role, tier)} />
+                ))}
+              </Box>
+            </Box>
+          )),
+        ])}
         {inProject && (active || st!.red || st!.green) ? section('s-flight', 'subtle', [
           head('IN FLIGHT', active ? `${active.id} · ${active.label}` : undefined),
           st!.builder ? <Text key="b" dimColor>{`builder ${st!.builder}`}</Text> : null,

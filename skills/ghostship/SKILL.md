@@ -129,6 +129,8 @@ Not everything is unit-testable, and "it builds" is not "it works". Judge the pr
 
 Hold every subagent to a contract. **Reject and redeploy any subagent that reports a conclusion without evidence** (real run output, test output, file paths, diffs).
 
+**Models.** You (the orchestrator) stay on the session's model. Name each subagent by its role, `builder T005` or `judge T005` in the Agent call's name or description, and send codebase searches and reading to the `Explore` agent: the Ghostship mod then runs searches and reading on Haiku and builders and judges on Sonnet, or whatever the owner set in the pane's ROUTING card. Do not pass `model` yourself.
+
 ### Builder Contract — Think → Write → Test → Review
 > You are building ONE task: `T###`. Read its `tasks/T###.md`, plus `spec.md` and `plan.md`, and note the build `mode:`.
 > 1. **Think.** In two lines: how you'll satisfy the acceptance criterion and what you'll change.
