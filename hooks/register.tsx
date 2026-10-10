@@ -286,57 +286,97 @@ export const register: Register = on => {
     const { Box, Text } = ui
     const folded = await read($, foldedAppAtom)
     const controls = paneControls(ui, $, APP_PANE, folded, () => void update($, foldedAppAtom, () => !folded))
-    const st = await readState($)
-    const tasks = await readBoard($)
     const { name, about } = appIdentity(await tryRead($, 'package.json'), await tryRead($, 'README.md'))
-    const files = appEntries(await tryList($))
-    const feats = featuresOf(tasks)
-    const done = tasks.filter(t => t.status === 'done').length
-    const room = Math.max(5, (e.viewport?.rows ?? 30) - 16)
-    const bar = progressBar(done, tasks.length, 12) || '░'.repeat(12)
-
     if (folded) {
-      return <Box paddingX={1} justifyContent="space-between"><Text bold color={GS.clay}>◆ {name ?? 'App'} overview</Text>{controls}</Box>
+      return <Box paddingX={1} justifyContent="space-between"><Text bold color={GS.clay}>{`⛴ ${name ?? 'App'} overview`}</Text>{controls}</Box>
     }
 
+    const version = await versionOf($)
+    const st = await readState($)
+    const tasks = await readBoard($)
+    const files = appEntries(await tryList($))
+    const feats = featuresOf(tasks)
+    const done = tasks.filter(t => t.status === 'done' || t.status === 'merged').length
+    const parked = tasks.filter(t => t.status === 'parked').length
+    const stageIdx = st?.stage ? curIndexOf(st.stage) : -1
+    const stageLabel = st?.stage === 'done' ? 'Released' : st?.stage ? (VOYAGE[stageIdx]?.label ?? st.stage) : null
+
+    // One round card per section from 44 columns, as the voyage pane; the banner and progress cards carry the state colour.
+    const cols = e.props.bodyColumns ?? 40
+    const cards = cols >= 44
+    const inner = Math.max(10, cols - (cards ? 4 : 2))
+    const edge = st?.awaiting ? 'warning' : st?.stage === 'done' ? 'success' : 'claude'
+    const section = (key: string, color: string, body: any) => cards
+      ? <Box key={key} flexDirection="column" borderStyle="round" borderColor={color} paddingX={1}>{body}</Box>
+      : <Box key={key} flexDirection="column" paddingX={1}>{body}</Box>
+    // Rows each list may take, so the pane fits its height.
+    const room = Math.max(3, (e.viewport?.rows ?? 30) - 24)
+    const list = (key: string, items: string[], color: string, empty: string): any[] => items.length
+      ? [
+          ...items.slice(0, room).map((f, i) => <Text key={`${key}${i}`} color={color} wrap="truncate-end">{`  ${f}`}</Text>),
+          items.length > room ? <Text key={`${key}-more`} dimColor>{`  … ${items.length - room} more`}</Text> : null,
+        ]
+      : [<Text key={`${key}-none`} color={GS.subtle}>{`  ${empty}`}</Text>]
+
+    // Progress: tasks done once there is a board; before that, how far along the seven stages the voyage is.
+    const progress = !st?.stage
+      ? [
+          <Text key="ph" color="subtle">PROGRESS</Text>,
+          <Text key="pn" dimColor>No voyage here yet · /ghostship new to start one</Text>,
+        ]
+      : [
+          <Box key="ph" justifyContent="space-between">
+            <Text color="subtle">PROGRESS</Text>
+            <Text color="subtle">
+              {tasks.length
+                ? `${done}/${tasks.length} tasks · ${Math.round((done / tasks.length) * 100)}%`
+                : `stage ${Math.min(stageIdx + 1, VOYAGE.length)}/${VOYAGE.length}`}
+            </Text>
+          </Box>,
+          <Text key="pb" color={st.awaiting ? GS.amber : GS.clay}>
+            {tasks.length ? progressBar(done, tasks.length, inner) : progressBar(Math.max(0, stageIdx), VOYAGE.length, inner)}
+          </Text>,
+          parked ? <Text key="pk" color="warning">{`⚠ ${parked} parked`}</Text> : null,
+          st.awaiting ? <Text key="aw" color="warning">{`⏸ ${st.awaiting}`}</Text> : null,
+        ]
+
     return (
-      <Box flexDirection="column" paddingX={1}>
-        {controls}
-        <Box flexDirection="row" justifyContent="space-between">
-          <Text bold color={GS.clay}>◆ {name ?? 'App'} <Text color={GS.mist}>overview</Text></Text>
-          <Text bold color={st?.awaiting ? GS.amber : GS.clay}>{st?.stage ?? 'no stage'}</Text>
-        </Box>
-        {about ? <Text color={GS.mist} wrap="truncate-end">{about}</Text> : null}
-        <Text color={GS.subtle}>{'─'.repeat(36)}</Text>
-
-        <Box flexDirection="row" marginTop={1}>
-          <Text color={GS.clay}>{bar}</Text>
-          <Text color={GS.mist}> {done}/{tasks.length} tasks done</Text>
-        </Box>
-
-        <Box flexDirection="column" marginTop={1}>
-          <Text bold color={GS.green}>✓ Built</Text>
-          {feats.built.length === 0 && <Text color={GS.subtle}>  nothing built yet</Text>}
-          {feats.built.slice(0, room).map(f => <Text color={GS.green} wrap="truncate-end">  {f}</Text>)}
-          <Text bold color={GS.amber}>● Building</Text>
-          {feats.active.length === 0 && <Text color={GS.subtle}>  nothing in progress</Text>}
-          {feats.active.slice(0, room).map(f => <Text color={GS.amber} wrap="truncate-end">  {f}</Text>)}
-          <Text bold color={GS.mist}>○ Planned</Text>
-          {feats.planned.length === 0 && <Text color={GS.subtle}>  nothing planned</Text>}
-          {feats.planned.slice(0, room).map(f => <Text color={GS.mist} wrap="truncate-end">  {f}</Text>)}
-        </Box>
-
-        <Box flexDirection="column" marginTop={1}>
-          <Text bold color={GS.clay}>Files</Text>
-          {files.length === 0 && <Text color={GS.subtle}>  no files</Text>}
-          {files.slice(0, room).map(f =>
-            f.isDir ? <Text bold color={GS.mist}>  {f.name}/</Text> : <Text color={GS.subtle}>  {f.name}</Text>,
-          )}
-        </Box>
-
-        <Box marginTop={1}>
-          <Text color={GS.subtle}>/ghostship-overview refreshes this</Text>
-        </Box>
+      <Box flexDirection="column" gap={cards ? 0 : 1}>
+        {section('o-banner', edge, [
+          controls,
+          <Text key="brand" bold color={GS.clay}>⛴  G H O S T S H I P</Text>,
+          <Text key="ver" dimColor>{version ? `v${version} · app overview` : 'app overview'}</Text>,
+        ])}
+        {section('o-app', 'subtle', [
+          <Box key="name" justifyContent="space-between">
+            <Text bold>{name ?? 'This app'}</Text>
+            {stageLabel ? <Text color={st?.awaiting ? 'warning' : 'claude'}>{`● ${stageLabel}`}</Text> : null}
+          </Box>,
+          about
+            ? <Text key="about" color={GS.mist} wrap="wrap">{about}</Text>
+            : <Text key="about" dimColor wrap="wrap">No description yet: add one to package.json, or open the README with a one-line pitch.</Text>,
+        ])}
+        {section('o-progress', edge, progress)}
+        {tasks.length ? section('o-feat', 'subtle', [
+          <Text key="bh" bold color={GS.green}>{`✓ Built  ${feats.built.length}`}</Text>,
+          ...list('b', feats.built, GS.green, 'nothing built yet'),
+          <Text key="ah" bold color={GS.amber}>{`● Building  ${feats.active.length}`}</Text>,
+          ...list('a', feats.active, GS.amber, 'nothing in progress'),
+          <Text key="qh" bold color={GS.mist}>{`○ Planned  ${feats.planned.length}`}</Text>,
+          ...list('q', feats.planned, GS.mist, 'nothing planned'),
+        ]) : null}
+        {section('o-files', 'subtle', [
+          <Box key="fh" justifyContent="space-between">
+            <Text color="subtle">FILES</Text>
+            <Text color="subtle">{`${files.length} at the top level`}</Text>
+          </Box>,
+          ...(files.length
+            ? files.slice(0, room).map((f, i) => f.isDir
+              ? <Text key={`f${i}`} bold color={GS.mist}>{`  ${f.name}/`}</Text>
+              : <Text key={`f${i}`} color={GS.subtle}>{`  ${f.name}`}</Text>)
+            : [<Text key="f-none" dimColor>  no files</Text>]),
+          files.length > room ? <Text key="f-more" dimColor>{`  … ${files.length - room} more`}</Text> : null,
+        ])}
       </Box>
     )
   })

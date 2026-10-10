@@ -8,9 +8,23 @@ test("appIdentity reads the name and description from package.json", () => {
 });
 
 test("appIdentity falls back to the README title when there is no usable package.json", () => {
-  expect(appIdentity(null, "# Notes\n\ntext")).toEqual({ name: "Notes", about: null });
+  expect(appIdentity(null, "# Notes\n\ntext")).toEqual({ name: "Notes", about: "text" });
   expect(appIdentity("not json", "# Notes")).toEqual({ name: "Notes", about: null });
   expect(appIdentity(null, null)).toEqual({ name: null, about: null });
+});
+
+test("appIdentity takes the README's opening line as the description when package.json has none", () => {
+  const readme = [
+    '<p align="center"><img src="x.png"></p>',
+    "# Shop",
+    "",
+    "![badge](b.svg)",
+    "> A **tiny** shop for [Acme](https://acme.dev) teams.",
+    "",
+    "More text.",
+  ].join("\n");
+  expect(appIdentity(JSON.stringify({ name: "shop" }), readme)).toEqual({ name: "shop", about: "A tiny shop for Acme teams." });
+  expect(appIdentity(JSON.stringify({ name: "shop", description: "From pkg" }), readme).about).toBe("From pkg");
 });
 
 test("featuresOf groups board tasks into built, building and planned", () => {

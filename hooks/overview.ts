@@ -24,7 +24,24 @@ export function appIdentity(pkgJson: string | null, readme: string | null): { na
     const title = readme.match(/^#\s+(.+)$/m)
     name = title ? title[1].trim() : null
   }
+  if (!about && readme) about = readmePitch(readme)
   return { name, about }
+}
+
+// The README's opening line of prose, the one-line pitch most READMEs start with, its markdown stripped.
+// Headings, images, badges, tables, code and rules are skipped.
+function readmePitch(readme: string): string | null {
+  for (const raw of readme.split('\n')) {
+    const line = raw.trim().replace(/^>\s*/, '')
+    if (!line || /^(#|<|!\[|\[!\[|\||```|-{3,}|={3,})/.test(line)) continue
+    const text = line
+      .replace(/!\[[^\]]*\]\([^)]*\)/g, '')
+      .replace(/\[([^\]]*)\]\([^)]*\)/g, '$1')
+      .replace(/[*_`]/g, '')
+      .trim()
+    if (text) return text.length > 160 ? `${text.slice(0, 159)}…` : text
+  }
+  return null
 }
 
 // Board tasks grouped by what they cover: what is built, what is being built, what is planned.

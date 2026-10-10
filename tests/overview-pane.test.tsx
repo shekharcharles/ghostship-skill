@@ -1,4 +1,4 @@
-import { describe, expect, test } from "claude-code/testing";
+import { describe, expect, mock, test } from "claude-code/testing";
 import type { Mounted } from "claude-code/testing";
 
 const STATE = ["stage: build", "phase: 2/3", "autonomy: auto", "active task: T005"].join("\n");
@@ -23,6 +23,7 @@ async function shows(ui: Pick<Mounted, "findAll">, text: string): Promise<void> 
 
 describe("the app overview pane", () => {
   test("shows the app name, the stage, what is built and the files", { options: { autoOpen: false } }, async ($, on) => {
+    mock.clock(on);
     on("session.start", ($, e) => ({ cwd: e.cwd }));
     on("command.register", ($, e) => ({ value: { command: e.name } }));
     on("ui.open", () => ({ value: { isPlaced: true } }));
@@ -43,10 +44,34 @@ describe("the app overview pane", () => {
     const ui = await $.ui.mount({ plugin: "ghostship", surface: "terminal", ...PANE });
     await shows(ui, "shop");
     await shows(ui, "A small shop");
-    await shows(ui, "build");
+    await shows(ui, "G H O S T S H I P");
+    await shows(ui, "● Build");
+    await shows(ui, "1/2 tasks · 50%");
     await shows(ui, "setup");
     await shows(ui, "store");
     await shows(ui, "src/");
     await shows(ui, "package.json");
+  });
+});
+
+describe("the app overview pane outside a Ghostship project", () => {
+  test("shows the banner, the README pitch and no voyage yet", { options: { autoOpen: false } }, async ($, on) => {
+    mock.clock(on);
+    on("session.start", ($, e) => ({ cwd: e.cwd }));
+    on("command.register", ($, e) => ({ value: { command: e.name } }));
+    on("ui.open", () => ({ value: { isPlaced: true } }));
+    on("fs.read", ($, e) => {
+      if (e.path.endsWith("README.md")) return { value: "# Shop\n\nA tiny shop for teams.\n" };
+      if (e.path.endsWith("plugin.json")) return { value: JSON.stringify({ version: "9.9.9" }) };
+      return { deny: `ENOENT ${e.path}` };
+    });
+    on("fs.list", () => ({ value: [] }));
+    await $.session.start({ surface: "terminal", isInteractive: true, cwd: "/work" });
+
+    const ui = await $.ui.mount({ plugin: "ghostship", surface: "terminal", ...PANE });
+    await shows(ui, "v9.9.9 · app overview");
+    await shows(ui, "Shop");
+    await shows(ui, "A tiny shop for teams.");
+    await shows(ui, "No voyage here yet");
   });
 });
