@@ -9,7 +9,8 @@ import type { VoyageSnap } from '../types'
 import { bandTree } from './band.tsx'
 import { GS, clock, fmtTokens } from './lib.ts'
 import { appEntries, appIdentity } from './overview.ts'
-import { fitAgents, roleOf, stepOf, type Running } from './agents.ts'
+import { fitAgents, roleOf, type Running } from './agents.ts'
+import { activityOf, partialArgsOf, thoughtOf, wordsAdded } from './activity.ts'
 import {
   addStep, cacheLeft, coldWriteUsd, countdown, endAgent, fmtK, hitRate, keepWarmDue, keepWarmLead, limitsOf, splitSpend, modelLabel, projectTotal,
   refreshVerdict, rowParts, shouldWarn, span, ttlMs, usageUsd,
@@ -66,9 +67,41 @@ const RAW_MANIFEST = `https://raw.githubusercontent.com/${REPO}/${BRANCH}/.claud
 
 // Module variables reset on reload; the elapsed clock simply restarts, which is fine.
 // What the main thread (this session) is doing right now, in words; cleared when the turn ends.
-let mainStep: string | null = null
-// The latest words of each agent's thinking, by agent id ('main' for this session), shown on its row in the Agents tab.
-const thoughts = new Map<string, string>()
+// What each agent is doing this moment, by agent id ('main' for this session): the phase the model is in, its thought, its reply
+// and the tool call it is writing, as What's Agent Doing (MIT) follows them. Read by the band and the Agents tab.
+type Phase = 'idle' | 'requesting' | 'thinking' | 'writing' | 'composing' | 'tool'
+type Live = {
+  phase: Phase
+  thought: string
+  isThoughtInWord: boolean
+  replyWords: number
+  isReplyInWord: boolean
+  composing: { tool: string; head: string } | null
+  lastAction: string | null
+}
+const MAX_INPUT_HEAD = 400
+const lives = new Map<string, Live>()
+function liveOf(key: string): Live {
+  let live = lives.get(key)
+  if (!live) {
+    live = { phase: 'idle', thought: '', isThoughtInWord: false, replyWords: 0, isReplyInWord: false, composing: null, lastAction: null }
+    lives.set(key, live)
+  }
+  return live
+}
+// The line that says what an agent is doing this moment, in What's Agent Doing's words.
+function doingOf(live: Live): string | null {
+  switch (live.phase) {
+    case 'requesting': return 'Waiting for the model'
+    case 'thinking': {
+      const snippet = thoughtOf(live.thought, 70)
+      return snippet ? `Thinking: ${snippet}` : live.lastAction ?? 'Waiting for the model'
+    }
+    case 'writing': return `Writing the reply · ${live.replyWords} word${live.replyWords === 1 ? '' : 's'}`
+    case 'composing': return live.composing ? activityOf(live.composing.tool, partialArgsOf(live.composing.head)) : 'Writing a tool call'
+    default: return live.lastAction
+  }
+}
 let activeTask: string | null = null
 let activeSince: number | null = null
 let publishedKey = ''
@@ -534,7 +567,8 @@ export const register: Register = on => {
   on('turn.start', async ($, e, next) => { working = true; return next(e) }).catch(($, e, next) => next(e))
   on('turn.complete', async ($, e, next) => {
     working = false
-    mainStep = null
+    liveOf('main').lastAction = null
+    liveOf('main').phase = 'idle'
     const now = await $.clock.now()
     await update($, lastReplyAtAtom, () => now)
     await publish($)
@@ -546,17 +580,32 @@ export const register: Register = on => {
   // Every reply of the main model restarts the prompt cache's lifetime; subagents keep caches of their own.
   // Each step, the main thread's or a subagent's, adds its tokens and list-price cost to the ledger the pane shows.
   on('turn.step', async function* ($, e, next) {
-    // The model's thinking streams through here as it arrives: keep its latest words per agent, and pass every piece on.
-    const key = e.agentId ?? 'main'
-    thoughts.set(key, '')
+    // The model's stream, followed chunk by chunk into this agent's live state, and passed on unchanged.
+    const live = liveOf(e.agentId ?? 'main')
+    Object.assign(live, { phase: 'requesting', thought: '', isThoughtInWord: false, replyWords: 0, isReplyInWord: false, composing: null })
     const piece = next(e)
     let result
     for (;;) {
       const step = await piece.next()
       if (step.done) { result = step.value; break }
-      if (step.value.kind === 'thinking') thoughts.set(key, `${thoughts.get(key) ?? ''}${step.value.text}`.slice(-400))
-      yield step.value
+      const c = step.value
+      if (c.kind === 'thinking') {
+        live.phase = 'thinking'
+        live.thought = (live.thought + c.text).slice(-2000)
+      } else if (c.kind === 'text') {
+        live.phase = 'writing'
+        const w = wordsAdded(c.text, live.isReplyInWord)
+        live.replyWords += w.added
+        live.isReplyInWord = w.isInWord
+      } else if (c.kind === 'tool') {
+        live.phase = 'composing'
+        live.composing = { tool: c.name, head: '' }
+      } else if (c.kind === 'input' && live.composing && live.composing.head.length < MAX_INPUT_HEAD) {
+        live.composing.head += c.json
+      }
+      yield c
     }
+    if (!live.composing) live.phase = 'idle'
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const usage = result.usage as any
     const now = await $.clock.now()
@@ -653,8 +702,12 @@ export const register: Register = on => {
   }).catch(($, e, next) => next(e))
 
   on('tool.call', async ($, e, next) => {
-    const step = stepOf(e.tool, e as unknown as Record<string, unknown>)
-    if (e.agentId !== undefined) { const a = running.get(e.agentId); if (a) a.label = step } else mainStep = step
+    const step = activityOf(e.tool, e as unknown as Record<string, unknown>)
+    const live = liveOf(e.agentId ?? 'main')
+    live.phase = 'tool'
+    live.composing = null
+    live.lastAction = step
+    if (e.agentId !== undefined) { const a = running.get(e.agentId); if (a) a.label = step }
     return next(e)
   }).catch(($, e, next) => next(e))
 
@@ -880,11 +933,12 @@ export const register: Register = on => {
         room -= 1
       }
 
-      // What the main thread is thinking right now, one line under the usage, while a turn runs.
-      if (working && room >= 1 && thoughts.get('main')) {
+      // What the main thread is doing right now, one line under the usage, while a turn runs: thinking, writing, a call, a tool.
+      const doing = working ? doingOf(liveOf('main')) : null
+      if (doing && room >= 1) {
         rows.push(
           <Box key="gs-think" flexDirection="row">
-            <Text color={GS.mist} wrap="truncate-end">{`thinking › …${thoughts.get('main')!.replace(/\s+/g, ' ').trim().slice(-120)}`}</Text>
+            <Text color={GS.mist} wrap="truncate-end">{`${SPIN[Math.floor(nowMs / SPIN_MS) % SPIN.length]} ${doing}`}</Text>
           </Box>,
         )
         room -= 1
@@ -1158,11 +1212,11 @@ export const register: Register = on => {
                   <Box flexShrink={1}>{mark}<Text bold wrap="truncate-end">{a.name.slice(0, 32)}</Text></Box>
                   <Box flexShrink={0}><Text bold color={a.usd > 0 ? 'claude' : 'subtle'}>{money(a.usd)}</Text></Box>
                 </Box>
-                {a.running && thoughts.get(a.id) ? (
-                  <Text key={`pth-${a.id}`} color={GS.mist} wrap="truncate-end">{`   thinking › …${thoughts.get(a.id)!.replace(/\s+/g, ' ').trim().slice(-96)}`}</Text>
+                {a.running && doingOf(liveOf(a.id)) ? (
+                  <Text key={`pth-${a.id}`} color={GS.mist} wrap="truncate-end">{`   ${doingOf(liveOf(a.id))}`}</Text>
                 ) : null}
                 <Box flexDirection="row" justifyContent="space-between">
-                  <Text dimColor wrap="truncate-end">{`  ${a.id === 'main' ? (working ? `working${mainStep ? ` › ${mainStep}` : '…'}` : 'this session, idle') : a.running ? `running ${clock(nowMs - a.startMs)}${live ? ` › ${live.label}` : ''}` : `done in ${clock((a.endMs ?? nowMs) - a.startMs)}`}`}</Text>
+                  <Text dimColor wrap="truncate-end">{`  ${a.id === 'main' ? (working ? `working${doingOf(liveOf('main')) ? ` › ${doingOf(liveOf('main'))}` : '…'}` : 'this session, idle') : a.running ? `running ${clock(nowMs - a.startMs)}${live ? ` › ${live.label}` : ''}` : `done in ${clock((a.endMs ?? nowMs) - a.startMs)}`}`}</Text>
                   <Box flexShrink={0}><Text dimColor>{`${modelLabel(a.model) ?? ''}  ${fmtK(a.input)} in · ${fmtK(a.output)} out`}</Text></Box>
                 </Box>
               </Box>

@@ -70,4 +70,8 @@ The pane is tabbed, so you pick a view instead of scrolling one long list: **Ove
 - `types/index.d.ts` — the `$.state` contract
 - `tests/` — `claude plugin test` suites
 
-Status: **0.8.5**, in active development. The earlier engine edition lives at github.com/shekharcharles/ghostship.
+Status: **0.9.0**, in active development. The earlier engine edition lives at github.com/shekharcharles/ghostship.
+
+## Credits
+
+The band's "what is the agent doing" line (the phase model, the thought's latest sentence, and the tool-call labels in `hooks/activity.ts`) is copied from [tzafrir/whats-agent-doing](https://github.com/tzafrir/whats-agent-doing), MIT, Copyright (c) 2026 Tzafrir Rehan.
