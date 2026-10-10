@@ -12,7 +12,7 @@ import { appEntries, appIdentity, featuresOf } from './overview.ts'
 
 // Ghostship's two live surfaces: the band above the prompt (drawn by the hooks module on the terminal, one SVG on the
 // desktop) and the voyage pane docked right. Both only reflect the skill's own files (docs/ghostship/STATE.md
-// + BOARD.md) — no engine, no hidden state. Inert outside a Ghostship project.
+// + BOARD.md) — no engine, no hidden state. Outside a Ghostship project they show an idle line.
 
 const PANE = 'ghostship-voyage'
 const APP_PANE = 'ghostship-overview'
@@ -155,7 +155,7 @@ async function publish($: EngineInterface): Promise<void> {
 async function refreshStatus($: EngineInterface): Promise<void> {
   try {
     const st = await readState($)
-    if (!st || !st.stage) { $.ui.status(undefined); return }
+    if (!st || !st.stage) { $.ui.status(installedVersion ? `⛴ v${installedVersion} · no voyage here` : '⛴ no voyage here'); return }
     // One plain line under the prompt, the glance view when the band is hidden: version · stage · phase · task · STOP.
     const i = curIndexOf(st.stage)
     const parts = [installedVersion ? `⛴ v${installedVersion}` : '⛴', st.stage === 'done' ? 'released' : (VOYAGE[i]?.label ?? st.stage)]
@@ -335,7 +335,7 @@ export const register: Register = on => {
       </Box>
     ) : null
 
-    // The voyage band — only inside a project, and not hidden.
+    // The voyage band, unless hidden: the full voyage inside a project, an idle line outside one.
     let band: unknown = null
     let waitRow: unknown = null
     if (!(await read($, hiddenAtom))) {
@@ -367,6 +367,16 @@ export const register: Register = on => {
             </Box>
           )
         }
+      } else {
+        // No Ghostship project in this folder: an idle band, as the pane has, so the mod is visibly loaded.
+        band = (
+          <Box key="gs-band" flexDirection="row" gap={3}>
+            <Box flexShrink={0}><Text color={GS.clay} bold>{`⛴ Ghostship${installedVersion ? ` v${installedVersion}` : ''}`}</Text></Box>
+            <Text dimColor wrap="truncate-end">no voyage here · /ghostship new to start one</Text>
+            {branch ? <Box flexShrink={0}><Text color={GS.subtle}>{`⎇ ${branch}`}</Text></Box> : null}
+            <Button key="gs-band-x" label="✕" plain dimColor role="dismiss" onPress={() => void setHidden($, true)} />
+          </Box>
+        )
       }
     }
 
