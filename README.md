@@ -33,7 +33,7 @@ Then in any project: `/ghostship new` (or `adopt`, `resume`).
 
 The pane opens when you ask: `/ghostship`, or **Open** in the control panel. Its `–` minimizes it to the `◆ Ghostship` button; the panel opens it again.
 
-The band's second line is your usage: the model, **what this project has cost across all its sessions** (and this session), a context bar with the tokens used out of the window, the 5-hour use and when it resets, the weekly use, the prompt-cache countdown (⏳, with what the next send costs once it is cold) and hit rate. **↻ cache** keeps the cache warm (one tiny request over the cached conversation) and says whether it was still warm; a toast warns a minute before it goes cold; **Summarize** condenses a heavy conversation the way `/compact` does.
+The band's second line is your usage: the model, **what this project has cost across all its sessions** (and this session), a context bar with the tokens used out of the window, the 5-hour use and when it resets, the weekly use, the prompt-cache countdown (⏳, with what the next send costs once it is cold) and hit rate. **↻ cache** keeps the cache warm (one tiny request over the cached conversation) and says whether it was still warm; a toast warns a minute before it goes cold.
 
 The pane adds three cards:
 
@@ -62,4 +62,4 @@ The pane reads the project's own files (`package.json` or `README.md`, `docs/gho
 - `types/index.d.ts` — the `$.state` contract
 - `tests/` — `claude plugin test` suites
 
-Status: **0.6.2**, in active development. The earlier engine edition lives at github.com/shekharcharles/ghostship.
+Status: **0.6.3**, in active development. The earlier engine edition lives at github.com/shekharcharles/ghostship.

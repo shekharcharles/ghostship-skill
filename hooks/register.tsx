@@ -358,16 +358,6 @@ async function recordSpend($: EngineInterface): Promise<void> {
   await update($, projectUsdAtom, () => projectTotal(bySession))
 }
 
-// The band's Summarize: the summary /compact makes, so a heavy conversation carries on lighter. Only between turns.
-async function summarize($: EngineInterface): Promise<void> {
-  try {
-    const r = await $.session.compact()
-    $.ui.toast(r && 'skip' in r && r.skip ? 'Another mod declined the summary.' : 'Conversation summarized: it carries on from the summary.')
-  } catch {
-    $.ui.toast('Summarize works between turns: try again when this one finishes.')
-  }
-}
-
 // ---- keeping the build going: between STOP 1 and STOP 2 the owner is never asked, and the turn does not end ----
 // The skill says so; these two hooks hold it to that. A question is refused with the way to park it instead, and a turn
 // that tries to end while tasks remain is sent back to the next one, up to MAX_NUDGES times without progress on disk.
@@ -734,7 +724,6 @@ export const register: Register = (on, options) => {
             </Text>
             <Box flexDirection="row" gap={1} flexShrink={0}>
               <Button key="gs-cache" label=" ↻ cache " plain dimColor onPress={() => void refreshCache($)} />
-              <Button key="gs-sum" label=" Summarize " variant="secondary" onPress={() => void summarize($)} />
             </Box>
           </Box>,
         )
