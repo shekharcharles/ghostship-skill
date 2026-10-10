@@ -67,6 +67,8 @@ const RAW_MANIFEST = `https://raw.githubusercontent.com/${REPO}/${BRANCH}/.claud
 // Module variables reset on reload; the elapsed clock simply restarts, which is fine.
 // What the main thread (this session) is doing right now, in words; cleared when the turn ends.
 let mainStep: string | null = null
+// The latest words of each agent's thinking, by agent id ('main' for this session), shown on its row in the Agents tab.
+const thoughts = new Map<string, string>()
 let activeTask: string | null = null
 let activeSince: number | null = null
 let publishedKey = ''
@@ -544,7 +546,17 @@ export const register: Register = on => {
   // Every reply of the main model restarts the prompt cache's lifetime; subagents keep caches of their own.
   // Each step, the main thread's or a subagent's, adds its tokens and list-price cost to the ledger the pane shows.
   on('turn.step', async function* ($, e, next) {
-    const result = yield* next(e)
+    // The model's thinking streams through here as it arrives: keep its latest words per agent, and pass every piece on.
+    const key = e.agentId ?? 'main'
+    thoughts.set(key, '')
+    const piece = next(e)
+    let result
+    for (;;) {
+      const step = await piece.next()
+      if (step.done) { result = step.value; break }
+      if (step.value.kind === 'thinking') thoughts.set(key, `${thoughts.get(key) ?? ''}${step.value.text}`.slice(-400))
+      yield step.value
+    }
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const usage = result.usage as any
     const now = await $.clock.now()
@@ -1136,6 +1148,9 @@ export const register: Register = on => {
                   <Box flexShrink={1}>{mark}<Text bold wrap="truncate-end">{a.name.slice(0, 32)}</Text></Box>
                   <Box flexShrink={0}><Text bold color={a.usd > 0 ? 'claude' : 'subtle'}>{money(a.usd)}</Text></Box>
                 </Box>
+                {a.running && thoughts.get(a.id) ? (
+                  <Text key={`pth-${a.id}`} color={GS.mist} wrap="truncate-end">{`   thinking › …${thoughts.get(a.id)!.replace(/\s+/g, ' ').trim().slice(-96)}`}</Text>
+                ) : null}
                 <Box flexDirection="row" justifyContent="space-between">
                   <Text dimColor wrap="truncate-end">{`  ${a.id === 'main' ? (working ? `working${mainStep ? ` › ${mainStep}` : '…'}` : 'this session, idle') : a.running ? `running ${clock(nowMs - a.startMs)}${live ? ` › ${live.label}` : ''}` : `done in ${clock((a.endMs ?? nowMs) - a.startMs)}`}`}</Text>
                   <Box flexShrink={0}><Text dimColor>{`${modelLabel(a.model) ?? ''}  ${fmtK(a.input)} in · ${fmtK(a.output)} out`}</Text></Box>
