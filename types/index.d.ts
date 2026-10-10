@@ -22,6 +22,8 @@ declare module 'claude-code' {
       evidence: { task: string; verdict: 'pass' | 'fail' | 'parked'; at: number }[]
       folded: boolean          // the voyage pane is minimized to its header
       foldedApp: boolean       // the overview pane is minimized to its header
+      boardOpen: boolean       // the voyage pane's BOARD section is expanded
+      recorderOpen: boolean    // the voyage pane's RECORDER section is expanded
     }
   }
 }

@@ -26,6 +26,8 @@ const spendAtom = atom({ plugin: 'ghostship', key: 'spend' } as const, null)
 const evidenceAtom = atom({ plugin: 'ghostship', key: 'evidence' } as const, [])
 const foldedAtom = atom({ plugin: 'ghostship', key: 'folded' } as const, false)
 const foldedAppAtom = atom({ plugin: 'ghostship', key: 'foldedApp' } as const, false)
+const boardOpenAtom = atom({ plugin: 'ghostship', key: 'boardOpen' } as const, true)
+const recorderOpenAtom = atom({ plugin: 'ghostship', key: 'recorderOpen' } as const, true)
 
 // Self-update: where the plugin lives on GitHub and how it's installed. Overridable by env.
 // A hooks module runs without Node, so `process` may not exist: read the overrides only when it does.
@@ -344,7 +346,7 @@ export const register: Register = on => {
   // ---- the voyage pane, docked right ----
   on('ui.render', { component: 'Pane', requestId: PANE }, async ($, e) => {
     const ui = $.ui.resolve(e)
-    const { Box, Text } = ui
+    const { Box, Text, Button } = ui
     const folded = await read($, foldedAtom)
     const controls = paneControls(ui, $, PANE, folded, () => void update($, foldedAtom, () => !folded))
     if (folded) {
@@ -352,6 +354,8 @@ export const register: Register = on => {
     }
     const spend = await read($, spendAtom)
     const evidence = await read($, evidenceAtom)
+    const boardOpen = await read($, boardOpenAtom)
+    const recorderOpen = await read($, recorderOpenAtom)
     const st = await readState($)
     if (!st || !st.stage) {
       return (
@@ -401,9 +405,18 @@ export const register: Register = on => {
         {right ? <Text color="subtle">{right}</Text> : null}
       </Box>
     )
+    // A section header with a disclosure triangle, as What's Agent Doing's box has: ▸ folded, ▾ open.
+    const disclosure = (label: string, isOpen: boolean, right: string, toggle: () => void) => (
+      <Box justifyContent="space-between">
+        <Button plain dimColor label={`${isOpen ? '▾' : '▸'} ${label}`} onPress={toggle} />
+        <Text color="subtle">{right}</Text>
+      </Box>
+    )
+    // The border names the state at a glance: amber when the voyage waits on the owner, green when released.
+    const border = st.awaiting ? 'warning' : st.stage === 'done' ? 'success' : 'claude'
 
     return (
-      <Box flexDirection="column" gap={1} paddingX={1}>
+      <Box flexDirection="column" gap={1} paddingX={1} borderStyle="round" borderColor={border}>
         {controls}
         <Box justifyContent="space-between">
           <Text color="claude" bold>{installedVersion ? `⛴ GHOSTSHIP v${installedVersion}` : '⛴ GHOSTSHIP'}</Text>
@@ -417,8 +430,8 @@ export const register: Register = on => {
         </Box>
         {board.length > 0 ? (
           <Box flexDirection="column">
-            {head('BOARD', `${board.length} TASKS`)}
-            {boardRows}
+            {disclosure('BOARD', boardOpen, `${board.length} TASKS`, () => void update($, boardOpenAtom, () => !boardOpen))}
+            {boardOpen ? boardRows : null}
           </Box>
         ) : null}
         {active || st.red || st.green ? (
@@ -432,12 +445,14 @@ export const register: Register = on => {
         ) : null}
         {evidence && evidence.length ? (
           <Box flexDirection="column">
-            {head('RECORDER', `${evidence.length} verdicts`)}
-            <Box flexWrap="wrap">
-              {evidence.slice(-6).map((v, i) => (
-                <Text key={`ev${i}`} color={v.verdict === 'pass' ? 'success' : 'warning'}>{`${v.verdict === 'pass' ? '✓' : '⚠'} ${v.task}  `}</Text>
-              ))}
-            </Box>
+            {disclosure('RECORDER', recorderOpen, `${evidence.length} verdicts`, () => void update($, recorderOpenAtom, () => !recorderOpen))}
+            {recorderOpen ? (
+              <Box flexWrap="wrap">
+                {evidence.slice(-6).map((v, i) => (
+                  <Text key={`ev${i}`} color={v.verdict === 'pass' ? 'success' : 'warning'}>{`${v.verdict === 'pass' ? '✓' : '⚠'} ${v.task}  `}</Text>
+                ))}
+              </Box>
+            ) : null}
           </Box>
         ) : null}
         {spend ? (
