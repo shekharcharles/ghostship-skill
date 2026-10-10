@@ -43,6 +43,7 @@ const cacheChoiceAtom = atom({ plugin: 'ghostship', key: 'cacheChoice' } as cons
 const ledgerAtom = atom({ plugin: 'ghostship', key: 'ledger' } as const, [])
 const projectUsdAtom = atom({ plugin: 'ghostship', key: 'projectUsd' } as const, null)
 // Which model each subagent role runs on; in $.store too, so it holds across sessions.
+const paneTabAtom = atom({ plugin: 'ghostship', key: 'paneTab' } as const, 'overview')
 const routingAtom = atom({ plugin: 'ghostship', key: 'routing' } as const, DEFAULT_ROUTING)
 
 // What the panel offers: the build modes and autonomy levels the skill knows, and the skill's own slash command.
@@ -84,6 +85,8 @@ const OTHER_MOD_ROWS = 4
 const NOTICE_MS = 20_000
 // A dotted spinner that circles while something runs (builders, judges, the main thread, a task being built).
 const SPIN = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏']
+// Frames advance every 100 ms, so the dots turn smoothly; the pane redraws that often only while work runs.
+const SPIN_MS = 100
 
 // The plugin's own installed version, from its manifest — shown in the band and pane.
 async function versionOf($: EngineInterface): Promise<string> {
@@ -454,6 +457,7 @@ export const register: Register = on => {
     // Live refresh: the snapshot every 1.5 s, and a redraw of the band and panes every second.
     try { $.clock.every(1500, () => { ticks += 1; if (ticks % 6 === 1) void readBranch($).catch(() => undefined); void publish($).catch(() => undefined) }) } catch { /* no live refresh */ }
     try { $.clock.every(1000, () => void usageTick($).catch(() => undefined)) } catch { /* no redraw timer */ }
+    try { $.clock.every(SPIN_MS, () => { if (buildBusy()) $.ui.invalidate('ui.render') }) } catch { /* no spinner */ }
     // The project's spend so far, every session together; this session adds itself after each turn.
     try {
       projectKey = `spend:${e.cwd}`
@@ -631,7 +635,7 @@ export const register: Register = on => {
     const budget = Math.max(0, (typeof e.props.maxRows === 'number' ? e.props.maxRows : 12) - (drawn ? OTHER_MOD_ROWS : 0))
     let used = 0
     const nowMs = await $.clock.now()
-    const t = Math.floor(nowMs / 1000)
+    const t = Math.floor(nowMs / SPIN_MS)
 
     // An update notice with a one-click Update — shown whenever a newer version is published, even outside a project.
     // Plain buttons: the engine may take a dismiss-role button before its onPress runs.
@@ -968,7 +972,7 @@ export const register: Register = on => {
       <Text key={`${key}-h`} bold color={color}>{`${glyph} ${title}  ${tasks.length}`}</Text>,
       ...capped(key, tasks.map((t, i) => (
         <Box key={`${key}-${t.id}`} flexDirection="row">
-          <Box flexShrink={0}><Text color={color} bold={spin}>{`${spin ? SPIN[(Math.floor(nowMs / 1000) + i) % SPIN.length] : glyph} `}</Text></Box>
+          <Box flexShrink={0}><Text color={color} bold={spin}>{`${spin ? SPIN[(Math.floor(nowMs / SPIN_MS) + i) % SPIN.length] : glyph} `}</Text></Box>
           <Text wrap="truncate-end">{`${t.id}  `}<Text color="subtle">{t.label}</Text></Text>
         </Box>
       ))),
@@ -977,14 +981,67 @@ export const register: Register = on => {
     const isBuilding = (t: Task) => t.status === 'building' || t.status === 'judging' || t.status === 'doing'
     const boardBody = [
       ...group('gb', 'Built', '✓', GS.green, board.filter(isBuilt)),
-      ...group('ga', 'Building', SPIN[Math.floor(nowMs / 1000) % SPIN.length]!, GS.green, board.filter(isBuilding), true),
+      ...group('ga', 'Building', SPIN[Math.floor(nowMs / SPIN_MS) % SPIN.length]!, GS.green, board.filter(isBuilding), true),
       ...group('gp', 'Planned', '○', GS.mist, board.filter(t => !isBuilt(t) && !isBuilding(t) && t.status !== 'parked')),
       ...group('gk', 'Parked', '⚠', GS.amber, board.filter(t => t.status === 'parked')),
     ]
 
+    const tab = (await read($, paneTabAtom)) ?? 'overview'
+    const TABS = [['overview', 'Overview'], ['plan', 'Plan'], ['agents', 'Agents'], ['cost', 'Cost'], ['files', 'Files']] as const
+    const tabBar = (
+      <Box key="tabs" flexDirection="row" gap={1}>
+        {TABS.map(([k, l]) => (
+          <Button key={`tab-${k}`} label={` ${l} `} {...(tab === k ? { variant: 'primary' as const } : { plain: true, dimColor: true })} onPress={() => void update($, paneTabAtom, () => k)} />
+        ))}
+      </Box>
+    )
+    // The plan: every phase of the build, its tasks in order, and how many are running, done, to do or on hold.
+    const frame = Math.floor(nowMs / SPIN_MS)
+    const planSection = section('s-plan', 'subtle', (() => {
+      const count = (f: (t: Task) => boolean) => board.filter(f).length
+      const phases = [...new Set(board.map(t => t.phase))]
+      const queued = (t: Task) => !isBuilt(t) && !isBuilding(t) && t.status !== 'parked'
+      return [
+        head('PLAN', `${board.length} tasks · ${phases.length} phases`),
+        <Box key="pl-sum" flexWrap="wrap" gap={2}>
+          <Text color={GS.green}>{`✓ ${count(isBuilt)} done`}</Text>
+          <Text color={GS.clay}>{`◆ ${count(isBuilding)} running`}</Text>
+          <Text color={GS.mist}>{`○ ${count(queued)} to do`}</Text>
+          <Text color={GS.amber}>{`⚠ ${count(t => t.status === 'parked')} on hold`}</Text>
+        </Box>,
+        ...(board.length ? phases.flatMap(p => {
+          const ts = board.filter(t => t.phase === p)
+          const done = ts.filter(isBuilt).length
+          return [
+            <Box key={`ph-${p}`} justifyContent="space-between" marginTop={1}>
+              <Text bold color={GS.clay}>{`Phase ${p}`}</Text>
+              <Text color="subtle">{`${done}/${ts.length} done`}</Text>
+            </Box>,
+            <Text key={`pb-${p}`} color={GS.clay}>{progressBar(done, ts.length, inner)}</Text>,
+            ...ts.map(t => {
+              const run = isBuilding(t)
+              const mark = run ? SPIN[frame % SPIN.length]! : isBuilt(t) ? '✓' : t.status === 'parked' ? '⚠' : '○'
+              const color = isBuilt(t) ? GS.green : run ? GS.clay : t.status === 'parked' ? GS.amber : GS.mist
+              const word = isBuilt(t) ? 'done' : run ? (t.status === 'judging' ? 'judging' : 'building') : t.status === 'parked' ? 'on hold' : 'to do'
+              return (
+                <Box key={`pt-${t.id}`} flexDirection="row" justifyContent="space-between" gap={1}>
+                  <Box flexShrink={1} minWidth={0}>
+                    <Text color={color} bold={run}>{`${mark} `}</Text>
+                    <Text wrap="truncate-end">{`${t.id}  `}<Text color="subtle">{t.label}</Text></Text>
+                  </Box>
+                  <Box flexShrink={0}><Text color={color}>{word}</Text></Box>
+                </Box>
+              )
+            }),
+          ]
+        }) : [<Text key="pl-none" dimColor>No plan yet: the tasks appear here once the plan is written.</Text>]),
+      ]
+    })())
+
     return (
       <Box flexDirection="column" gap={cards ? 0 : 1}>
-        {section('s-banner', edge, [
+        {tabBar}
+        {tab === 'overview' && section('s-banner', edge, [
           controls,
           <Text key="brand" bold color={GS.clay}>G H O S T S H I P</Text>,
           <Text key="ver" dimColor>{version ? `v${version}` : ' '}</Text>,
@@ -996,18 +1053,18 @@ export const register: Register = on => {
             ? <Text key="about" color={GS.mist} wrap="wrap">{about}</Text>
             : <Text key="about" dimColor wrap="wrap">No description yet: add one to package.json, or open the README with a one-line pitch.</Text>,
         ])}
-        {section('s-progress', edge, progress)}
-        {inProject ? section('s-voyage', 'subtle', [head('VOYAGE', st!.phase ? `PHASE ${st!.phase}` : undefined), ...voyageRows]) : null}
-        {ledger.length ? section('s-agents', 'claude', [
+        {tab === 'overview' && section('s-progress', edge, progress)}
+        {tab === 'overview' && inProject ? section('s-voyage', 'subtle', [head('VOYAGE', st!.phase ? `PHASE ${st!.phase}` : undefined), ...voyageRows]) : null}
+        {tab === 'agents' && ledger.length ? section('s-agents', 'claude', [
           head('AGENTS', `${ledger.filter(a => a.running).length} running · ${ledger.filter(a => a.id !== 'main').length} spawned`),
           // Running first, then by what each has cost: whether it runs, its name and model, tokens in and out, its price.
           ...capped('ag', [...ledger].sort((a, b) => Number(b.running) - Number(a.running) || b.usd - a.usd).map((a, i) => {
             const role = roleOf(a.name)
             const live = running.get(a.id)
             const mark = a.id === 'main'
-              ? <Text color={GS.clay}>{working ? `${SPIN[Math.floor(nowMs / 1000) % SPIN.length]} ` : '◆ '}</Text>
+              ? <Text color={GS.clay}>{working ? `${SPIN[Math.floor(nowMs / SPIN_MS) % SPIN.length]} ` : '◆ '}</Text>
               : a.running
-                ? <Text color={role === 'judge' ? 'warning' : role === 'builder' ? 'claude' : 'subtle'}>{`${SPIN[(Math.floor(nowMs / 1000) + i) % SPIN.length]} `}</Text>
+                ? <Text color={role === 'judge' ? 'warning' : role === 'builder' ? 'claude' : 'subtle'}>{`${SPIN[(Math.floor(nowMs / SPIN_MS) + i) % SPIN.length]} `}</Text>
                 : <Text color="success">✓ </Text>
             return (
               <Box key={`pa-${a.id}`} flexDirection="column">
@@ -1023,7 +1080,7 @@ export const register: Register = on => {
             )
           })),
         ]) : null}
-        {section('s-route', 'subtle', [
+        {tab === 'agents' && section('s-route', 'subtle', [
           head('ROUTING', 'model per agent'),
           <Box key="r-main" justifyContent="space-between"><Text>Main thread</Text><Text dimColor>{`${modelLabel(lastModel) ?? 'the session model'} · decisions, spec, plan`}</Text></Box>,
           ...ROLES.map(role => (
@@ -1037,18 +1094,15 @@ export const register: Register = on => {
             </Box>
           )),
         ])}
-        {inProject && (active || st!.red || st!.green) ? section('s-flight', 'subtle', [
+        {tab === 'overview' && inProject && (active || st!.red || st!.green) ? section('s-flight', 'subtle', [
           head('IN FLIGHT', active ? `${active.id} · ${active.label}` : undefined),
           st!.builder ? <Text key="b" dimColor>{`builder ${st!.builder}`}</Text> : null,
           st!.judge ? <Text key="j" color="claude" bold>{`◆ judge `}<Text dimColor>{st!.judge}</Text></Text> : null,
           st!.red ? <Text key="r" color="error">{`red  ✗ `}<Text dimColor>{st!.red}</Text></Text> : null,
           st!.green ? <Text key="g" color="success">{`green ✓ `}<Text dimColor>{st!.green}</Text></Text> : null,
         ]) : null}
-        {board.length ? section('s-board', 'subtle', [
-          disclosure('BOARD', boardOpen, `${board.length} TASKS`, () => void update($, boardOpenAtom, () => !boardOpen)),
-          ...(boardOpen ? boardBody : []),
-        ]) : null}
-        {evidence && evidence.length ? section('s-rec', 'subtle', [
+        {tab === 'plan' && planSection}
+        {tab === 'overview' && evidence && evidence.length ? section('s-rec', 'subtle', [
           disclosure('RECORDER', recorderOpen, `${evidence.length} verdicts`, () => void update($, recorderOpenAtom, () => !recorderOpen)),
           recorderOpen ? (
             <Box key="ev" flexWrap="wrap">
@@ -1058,7 +1112,7 @@ export const register: Register = on => {
             </Box>
           ) : null,
         ]) : null}
-        {section('s-files', 'subtle', [
+        {tab === 'files' && section('s-files', 'subtle', [
           disclosure('FILES', filesOpen, `${files.length} at the top level`, () => void update($, filesOpenAtom, () => !filesOpen)),
           ...(filesOpen
             ? capped('f', files.length
@@ -1068,7 +1122,7 @@ export const register: Register = on => {
               : [<Text key="f-none" dimColor>  no files</Text>])
             : []),
         ])}
-        {section('s-cache', cacheLeftMs !== null && cacheLeftMs <= 0 ? 'warning' : 'subtle', [
+        {tab === 'cost' && section('s-cache', cacheLeftMs !== null && cacheLeftMs <= 0 ? 'warning' : 'subtle', [
           head('CACHE', working ? 'warm · a turn is running'
             : cacheLeftMs === null ? 'no reply yet'
             : cacheLeftMs <= 0 ? 'expired' : `expires in ${countdown(cacheLeftMs)}`),
@@ -1094,7 +1148,7 @@ export const register: Register = on => {
           </Box>,
           keep ? <Text key="c-kl" dimColor>{`♨ keeping warm ${span(keep.until - nowMs)} more · a small refresh ${countdown(keepWarmLead(ttl))} before each expiry`}</Text> : null,
         ])}
-        {section('s-spend', 'subtle', [
+        {tab === 'cost' && section('s-spend', 'subtle', [
           head('SPEND', projectUsd != null ? `project ${money(projectUsd)}` : undefined),
           (() => {
             const sp = splitSpend(ledger, usd)

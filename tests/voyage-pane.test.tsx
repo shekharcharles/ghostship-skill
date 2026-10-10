@@ -56,12 +56,14 @@ describe("the voyage pane body", () => {
     await shows(ui, "v9.9.9");
   });
 
-  test("the board section opens with a disclosure triangle", { options: { autoOpen: false } }, async ($, on) => {
+  test("the plan tab lists each phase with its tasks and their status", { options: { autoOpen: false } }, async ($, on) => {
     world(on, STATE, BOARD);
     await $.session.start({ surface: "terminal", isInteractive: true, cwd: "/work" });
     const ui = await $.ui.mount({ plugin: "ghostship", surface: "terminal", ...PANE });
-    const buttons = (await ui.findAll({ type: "Button" })).map((b: any) => JSON.stringify(b));
-    expect(buttons.some((l: string) => l.includes("▾ BOARD")), `▾ BOARD in ${JSON.stringify(buttons)}`).toBe(true);
+    await ui.press({ key: "tab-plan" });
+    await shows(ui, "Phase 1");
+    await shows(ui, "1/1 done");
+    await shows(ui, "project setup");
   });
 
   test("the recorder lists the verdicts in EVIDENCE.md", { options: { autoOpen: false } }, async ($, on) => {

@@ -47,8 +47,10 @@ describe("the pane shows the app", () => {
     await shows(ui, "G H O S T S H I P");
     await shows(ui, "● Build");
     await shows(ui, "1/2 tasks · 50%");
+    await ui.press({ key: "tab-plan" });
     await shows(ui, "setup");
     await shows(ui, "store");
+    await ui.press({ key: "tab-files" });
     await shows(ui, "2 at the top level");
   });
 });

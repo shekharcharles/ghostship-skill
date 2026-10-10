@@ -56,6 +56,10 @@ The pane reads the project's own files (`package.json` or `README.md`, `docs/gho
 
 A project the earlier engine edition ran (a `.ghostship/` folder, the `gs` commands, the Bridge pane) moves over with `/ghostship:ghostship adopt`. The skill stops the old runner and runs `skills/ghostship/scripts/from-engine.mjs`, which writes `docs/ghostship/` from `.ghostship/state/state.json`: the stage, the board (merged tasks done, retired ones parked, and the tasks waiting on them parked with a decision applied and reported), the evidence, and links to the approved PRD and acceptance checks, which stay approved. It takes the engine's hooks and status line out of `.claude/settings.json` (a backup is kept beside it) and leaves `.ghostship/` in place. Until then the band and the pane say the project still runs the old engine.
 
+## The pane's tabs
+
+The pane is tabbed, so you pick a view instead of scrolling one long list: **Overview** (progress, voyage, what is in flight, the recorder), **Plan** (every phase of the build, its tasks in order, each with its status: done, running, to do or on hold, and the counts per phase), **Agents** (each agent, its task, its model and cost, and the ROUTING card), **Cost** (the cache and the spend), and **Files**. The spinner turns about ten times a second while work runs.
+
 ## Layout
 
 - `.claude-plugin/` — plugin and marketplace manifests
@@ -66,4 +70,4 @@ A project the earlier engine edition ran (a `.ghostship/` folder, the `gs` comma
 - `types/index.d.ts` — the `$.state` contract
 - `tests/` — `claude plugin test` suites
 
-Status: **0.7.5**, in active development. The earlier engine edition lives at github.com/shekharcharles/ghostship.
+Status: **0.8.0**, in active development. The earlier engine edition lives at github.com/shekharcharles/ghostship.
