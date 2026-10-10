@@ -78,14 +78,28 @@ export function capReached(spentUsd: number | null, cap: number | null): boolean
   return spentUsd !== null && cap !== null && spentUsd >= cap
 }
 
-export type Task = { id: string; phase: string; status: string; label: string }
+export type Task = { id: string; name: string; phase: string; status: string; label: string }
 
 /** Parse docs/ghostship/BOARD.md: markdown table rows `| T001 | 1 | done | setup |` (Task|Phase|Status|Covers). */
 export function parseBoard(text: string): Task[] {
   const out: Task[] = []
+  // A board with a Name column (`| Task | Name | Phase | Status | Covers |`) names each task; an older one (`| Task | Phase | Status | Covers |`) has no name.
+  let columns: string[] = []
   for (const line of text.split('\n')) {
-    const m = line.match(/^\s*\|\s*(T\d+)\s*\|\s*([^|]*?)\s*\|\s*([A-Za-z]+)\s*\|\s*([^|]*?)\s*\|/)
-    if (m) out.push({ id: m[1], phase: m[2], status: m[3].toLowerCase(), label: m[4] })
+    const cells = line.split('|').slice(1, -1).map(c => c.trim())
+    if (cells[0] === 'Task') { columns = cells.map(c => c.toLowerCase()); continue }
+    const m = line.match(/^\s*\|\s*(T\d+)\s*\|/)
+    if (!m || !cells.length) continue
+    const at = (name: string, fallback: number) => (columns.includes(name) ? cells[columns.indexOf(name)] ?? '' : cells[fallback] ?? '')
+    const named = columns.includes('name')
+    const status = (at('status', named ? 3 : 2)).toLowerCase()
+    out.push({
+      id: m[1],
+      name: named ? at('name', 1) : '',
+      phase: at('phase', named ? 2 : 1),
+      status,
+      label: at('covers', named ? 4 : 3),
+    })
   }
   return out
 }

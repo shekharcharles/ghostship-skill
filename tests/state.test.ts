@@ -127,3 +127,10 @@ test("the live test's inputs: provider key name, lab and spend cap, and what is 
   expect(capReached(999, null)).toBe(false);
 });
 
+test("a board with a Name column names each task; an older board still parses", () => {
+  const named = parseBoard("| Task | Name | Phase | Status | Covers |\n|--|--|--|--|--|\n| T024 | Advisory tax withheld | 2 | done | C25 |\n");
+  expect(named[0]).toMatchObject({ id: "T024", name: "Advisory tax withheld", phase: "2", status: "done", label: "C25" });
+  const older = parseBoard("| Task | Phase | Status | Covers |\n|--|--|--|--|\n| T001 | 1 | done | setup |\n");
+  expect(older[0]).toMatchObject({ id: "T001", name: "", phase: "1", status: "done", label: "setup" });
+});
+

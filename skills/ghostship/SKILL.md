@@ -76,15 +76,17 @@ awaiting: STOP 1 — approve the spec  # set ONLY while STOP 1 waits on the owne
 
 Write `stage:` always; add the others when they apply and clear `awaiting:` the moment a stop is approved.
 
-**`BOARD.md`** — the task board, a markdown table the pane reads row by row:
+**Every ID carries a name.** Each task, criterion (`C25`, `A3`) and decision (`D8`) has a short proper name that says what it is about, in its own row or heading: "T024 · Advisory tax withheld", "C25 · Withheld tax is shown as a line item". In every message to the owner and every file you write, put the name next to the ID the first time it appears (`T024 (Advisory tax withheld)`), and never leave a bare ID. A reader who sees only the ID must not have to look anything up.
+
+**`BOARD.md`** — the task board, a markdown table the pane reads row by row (the Name column is required):
 
 ```
-| Task | Phase | Status | Covers |
-|------|-------|--------|--------|
-| T001 | 1 | done     | project setup |
-| T005 | 2 | judging  | done command  |
-| T006 | 2 | todo     | clear command |
-| T008 | 3 | parked   | import        |
+| Task | Name | Phase | Status | Covers |
+|------|------|-------|--------|--------|
+| T001 | Project setup | 1 | done | A1 |
+| T005 | Mark a task done | 2 | judging | A3 |
+| T006 | Clear the board | 2 | todo | A4 |
+| T008 | Import the spec | 3 | parked | A7 |
 ```
 
 Status is one of `done | building | judging | todo | parked | merged`. Update a task's status in place as it moves.
@@ -99,7 +101,7 @@ T008 · PARKED · blocked by T007
 **`DECISIONS.md`** — decisions resolved during the build, each auto-applied with its reason and listed in the release report. One section per decision:
 
 ```
-## D1 · C12 cannot be passed honestly
+## D1 · C12 · Chromium in the container cannot be passed honestly
 Why: its test needs Chromium launched by `docker run --cap-drop ALL` AND the screenshot from the host process; only a decoy satisfies both.
 Blocks: T012 (parked)
 Options:

@@ -1247,7 +1247,7 @@ export const register: Register = on => {
       ...capped(key, tasks.map((t, i) => (
         <Box key={`${key}-${t.id}`} flexDirection="row">
           <Box flexShrink={0}><Text color={spin ? GS.green : color} bold={spin}>{`${spin ? SPIN[(Math.floor(nowMs / SPIN_MS) + i) % SPIN.length] : glyph} `}</Text></Box>
-          <Text wrap="truncate-end">{`${t.id}  `}<Text color="subtle">{t.label}</Text></Text>
+          <Text wrap="truncate-end">{`${t.id}  `}<Text bold>{t.name || t.label}</Text>{t.name && t.label ? <Text color="subtle">{`  · covers ${t.label}`}</Text> : null}</Text>
         </Box>
       ))),
     ] : []
@@ -1307,7 +1307,7 @@ export const register: Register = on => {
                 <Box key={`pt-${t.id}`} flexDirection="row" justifyContent="space-between" gap={1}>
                   <Box flexShrink={1} minWidth={0}>
                     <Text color={color} bold={run}>{`${mark} `}</Text>
-                    <Text wrap="truncate-end">{`${t.id}  `}<Text color="subtle">{t.label}</Text></Text>
+                    <Text wrap="truncate-end">{`${t.id}  `}<Text bold>{t.name || t.label}</Text>{t.name && t.label ? <Text color="subtle">{`  · covers ${t.label}`}</Text> : null}</Text>
                   </Box>
                   <Box flexShrink={0}><Text color={color}>{word}</Text></Box>
                 </Box>,
@@ -1415,7 +1415,7 @@ export const register: Register = on => {
           )),
         ])}
         {tab === 'overview' && inProject && (active || st!.red || st!.green) ? section('s-flight', 'subtle', [
-          head('IN FLIGHT', active ? `${active.id} · ${active.label}` : undefined),
+          head('IN FLIGHT', active ? `${active.id} · ${active.name || active.label}` : undefined),
           st!.builder ? <Text key="b" dimColor>{`builder ${st!.builder}`}</Text> : null,
           st!.judge ? <Text key="j" color="claude" bold>{`◆ judge `}<Text dimColor>{st!.judge}</Text></Text> : null,
           st!.red ? <Text key="r" color="error">{`red  ✗ `}<Text dimColor>{st!.red}</Text></Text> : null,
@@ -1427,7 +1427,7 @@ export const register: Register = on => {
           recorderOpen ? (
             <Box key="ev" flexWrap="wrap">
               {evidence.slice(-6).map((v, i) => (
-                <Text key={`ev${i}`} color={v.verdict === 'pass' ? 'success' : v.verdict === 'fail' ? 'error' : 'warning'}>{`${v.verdict === 'pass' ? '✓' : v.verdict === 'fail' ? '✗' : '⚠'} ${v.task}  `}</Text>
+                <Text key={`ev${i}`} color={v.verdict === 'pass' ? 'success' : v.verdict === 'fail' ? 'error' : 'warning'}>{`${v.verdict === 'pass' ? '✓' : v.verdict === 'fail' ? '✗' : '⚠'} ${v.task}${board.find(t => t.id === v.task)?.name ? ` ${board.find(t => t.id === v.task)!.name}` : ''}  `}</Text>
               ))}
             </Box>
           ) : null,
