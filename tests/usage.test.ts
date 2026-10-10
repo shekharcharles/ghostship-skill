@@ -1,6 +1,6 @@
 import { describe, expect, test } from "claude-code/testing";
 
-import { addStep, cacheLeft, cacheShort, coldWriteUsd, countdown, endAgent, fmtK, hitRate, keepWarmDue, limitsOf, modelLabel, projectTotal, refreshVerdict, rowParts, shouldWarn, ttlMs, untilReset } from "../hooks/usage.ts";
+import { addStep, cacheLeft, cacheShort, coldWriteUsd, countdown, endAgent, fmtK, hitRate, keepWarmDue, limitsOf, modelLabel, projectTotal, refreshVerdict, rowParts, shouldWarn, splitSpend, ttlMs, untilReset } from "../hooks/usage.ts";
 
 const NOW = Date.parse("2026-10-10T12:00:00Z");
 
@@ -107,5 +107,21 @@ describe("the band's usage line", () => {
     expect(projectTotal(undefined)).toBe(0);
     const parts = rowParts({ model: "claude-opus-5-5", contextPct: 8, working: false, leadMs: 60_000, fiveHour: null, week: null, hitPct: null, usd: 0.42, nowMs: NOW, cacheLeftMs: null, projectUsd: 12.4 });
     expect(parts[1]!.text).toBe("project $12.40 (session $0.42)");
+  });
+
+  test("the spend split scales to Claude Code's real session total, keeping each agent's share", () => {
+    const led = [
+      { id: "main", name: "Main thread", model: "claude-opus-5-5", running: false, startMs: 0, endMs: null, input: 0, output: 0, steps: 1, usd: 0.20 },
+      { id: "a1", name: "builder T005", model: "claude-sonnet-5-5", running: false, startMs: 0, endMs: null, input: 0, output: 0, steps: 1, usd: 0.10 },
+    ];
+    const real = splitSpend(led, 0.03);
+    expect(real.session).toBe(0.03);
+    expect(Math.round(real.main * 1e4)).toBe(200);        // 0.20/0.30 of 0.03
+    expect(Math.round(real.subagents * 1e4)).toBe(100);
+    expect(real.byModel.map(([m]) => m)).toEqual(["claude-opus-5-5", "claude-sonnet-5-5"]);
+    expect(real.estimated).toBe(false);
+    const none = splitSpend(led, null);
+    expect(Math.round(none.session * 1e4)).toBe(3000);
+    expect(none.estimated).toBe(true);
   });
 });

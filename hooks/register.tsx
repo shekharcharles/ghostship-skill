@@ -11,7 +11,7 @@ import { GS, clock, fmtTokens } from './lib.ts'
 import { appEntries, appIdentity } from './overview.ts'
 import { fitAgents, roleOf, stepOf, type Running } from './agents.ts'
 import {
-  addStep, cacheLeft, coldWriteUsd, countdown, endAgent, fmtK, hitRate, keepWarmDue, keepWarmLead, limitsOf, modelLabel, projectTotal,
+  addStep, cacheLeft, coldWriteUsd, countdown, endAgent, fmtK, hitRate, keepWarmDue, keepWarmLead, limitsOf, splitSpend, modelLabel, projectTotal,
   refreshVerdict, rowParts, shouldWarn, span, ttlMs, usageUsd,
 } from './usage.ts'
 import { DEFAULT_ROUTING, ROLES, TIERS, cleanRouting, judgeRetry, modelFor, roleOf as routeRole, taskOf, type Role, type Tier } from './routing.ts'
@@ -1018,19 +1018,16 @@ export const register: Register = (on, options) => {
         {section('s-spend', 'subtle', [
           head('SPEND', projectUsd != null ? `project ${money(projectUsd)}` : undefined),
           (() => {
-            const est = ledger.reduce((s, a) => s + a.usd, 0)
-            const main = ledger.find(a => a.id === 'main')?.usd ?? 0
-            const byModel = new Map<string, number>()
-            for (const a of ledger) if (a.usd > 0) byModel.set(modelLabel(a.model) ?? 'unknown', (byModel.get(modelLabel(a.model) ?? 'unknown') ?? 0) + a.usd)
+            const sp = splitSpend(ledger, usd)
             return (
               <Box key="sp-o" flexDirection="column">
-                <Box justifyContent="space-between"><Text color="subtle">this session</Text><Text bold>{money(usd ?? est)}</Text></Box>
-                <Box justifyContent="space-between"><Text color="subtle">  main thread</Text><Text>{money(main)}</Text></Box>
-                <Box justifyContent="space-between"><Text color="subtle">  subagents</Text><Text>{money(est - main)}</Text></Box>
-                {[...byModel].map(([m, v]) => (
-                  <Box key={`sp-m-${m}`} justifyContent="space-between"><Text dimColor>{`  on ${m}`}</Text><Text dimColor>{money(v)}</Text></Box>
+                <Box justifyContent="space-between"><Text color="subtle">this session</Text><Text bold>{money(sp.session)}</Text></Box>
+                <Box justifyContent="space-between"><Text color="subtle">  main thread</Text><Text>{money(sp.main)}</Text></Box>
+                <Box justifyContent="space-between"><Text color="subtle">  subagents</Text><Text>{money(sp.subagents)}</Text></Box>
+                {sp.byModel.map(([m, v]) => (
+                  <Box key={`sp-m-${m}`} justifyContent="space-between"><Text dimColor>{`  on ${modelLabel(m) ?? m}`}</Text><Text dimColor>{money(v)}</Text></Box>
                 ))}
-                <Text dimColor wrap="wrap">{usd != null ? 'Session total from Claude Code; the split is at list price.' : 'Estimated at list price.'}</Text>
+                <Text dimColor wrap="wrap">{sp.estimated ? 'Estimated at list price.' : 'Session total from Claude Code; the split follows the per-agent share.'}</Text>
               </Box>
             )
           })(),

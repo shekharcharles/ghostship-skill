@@ -135,6 +135,23 @@ export function projectTotal(bySession: Record<string, number> | undefined): num
   return Object.values(bySession ?? {}).reduce((sum, v) => sum + (typeof v === 'number' ? v : 0), 0)
 }
 
+/**
+ * The session's spend split by agent and by model. The ledger's per-step cost is a list-price estimate that double-counts a
+ * warm cache (each step re-reads the same context), so when Claude Code reports the real session total the shares are scaled
+ * to it: the proportions hold, the totals stay honest. Without a real total the raw estimate stands.
+ */
+export function splitSpend(ledger: readonly AgentSpend[], sessionUsd: number | null): {
+  session: number; main: number; subagents: number; byModel: [string, number][]; estimated: boolean
+} {
+  const est = ledger.reduce((s, a) => s + a.usd, 0)
+  const scale = sessionUsd !== null && est > 0 ? sessionUsd / est : 1
+  const at = (usd: number) => usd * scale
+  const main = at(ledger.find(a => a.id === 'main')?.usd ?? 0)
+  const byModel = new Map<string, number>()
+  for (const a of ledger) if (a.usd > 0) byModel.set(a.model ?? 'unknown', (byModel.get(a.model ?? 'unknown') ?? 0) + at(a.usd))
+  return { session: sessionUsd ?? est, main, subagents: at(est) - main, byModel: [...byModel], estimated: sessionUsd === null }
+}
+
 /** How long before the cache goes cold a keep-warm refresh is sent: a sixth of its lifetime (10m of 1h), at least 30 s. */
 export function keepWarmLead(ttl: number): number {
   return Math.max(30_000, ttl / 6)
