@@ -33,7 +33,7 @@ Then in any project: `/ghostship new` (or `adopt`, `resume`).
 
 The pane opens when you ask: `/ghostship`, or **Open** in the control panel. Its `–` minimizes it to the `◆ Ghostship` button; the panel opens it again.
 
-The band's second line is your usage: context fill, the prompt-cache countdown, and how much of the 5-hour and weekly limits is used. **↻ cache** at its end keeps the cache warm (one tiny request over the cached conversation), and a toast warns a minute before it goes cold. The countdown runs from the last reply; set the cache lifetime (`5m` or `1h`) in the plugin's settings.
+The band's second line is your usage: the model, a context bar with the tokens used out of the window, the 5-hour use and when it resets, the weekly use, the prompt-cache countdown (⏳) and hit rate, and what the session has cost. **↻ cache** keeps the cache warm (one tiny request over the cached conversation), and a toast warns a minute before it goes cold; **Summarize** condenses a heavy conversation the way `/compact` does. The countdown runs from the last reply; set the cache lifetime (`5m` or `1h`) in the plugin's settings.
 
 ## Unattended between the stops
 
@@ -51,4 +51,4 @@ The pane reads the project's own files (`package.json` or `README.md`, `docs/gho
 - `types/index.d.ts` — the `$.state` contract
 - `tests/` — `claude plugin test` suites
 
-Status: **0.5.0**, in active development. The earlier engine edition lives at github.com/shekharcharles/ghostship.
+Status: **0.5.1**, in active development. The earlier engine edition lives at github.com/shekharcharles/ghostship.

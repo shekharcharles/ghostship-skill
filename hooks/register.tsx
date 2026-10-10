@@ -10,7 +10,7 @@ import { bandTree } from './band.tsx'
 import { GS, clock, fmtTokens } from './lib.ts'
 import { appEntries, appIdentity } from './overview.ts'
 import { fitAgents, roleOf, stepOf, type Running } from './agents.ts'
-import { cacheLeft, countdown, limitsOf, rowParts, shouldWarn, ttlMs } from './usage.ts'
+import { cacheLeft, countdown, hitRate, limitsOf, rowParts, shouldWarn, ttlMs } from './usage.ts'
 
 // Ghostship's two live surfaces: the band above the prompt (drawn by the hooks module on the terminal, one SVG on the
 // desktop) and the voyage pane docked right. Both only reflect the skill's own files (docs/ghostship/STATE.md
@@ -247,7 +247,13 @@ async function doUpdate($: EngineInterface): Promise<void> {
 // restarts the cache's lifetime, which the cacheTtl setting names (5 minutes on most accounts, an hour on some).
 const WARN_LEAD_MS = 60_000
 let contextPct: number | null = null
-let limits: { fiveHour: number | null; week: number | null } = { fiveHour: null, week: null }
+let limits: ReturnType<typeof limitsOf> = { fiveHour: null, week: null }
+let tokens: number | undefined
+let windowSize: number | undefined
+let usd: number | null = null
+// From the main model's last reply: which model answered, and how much of its input the cache served.
+let lastModel: string | null = null
+let lastHit: number | null = null
 let working = false
 let warnedFor = 0
 
@@ -256,6 +262,9 @@ async function usageTick($: EngineInterface, ttl: number): Promise<void> {
   try {
     const u = await $.session.usage()
     contextPct = u.context.percent ?? null
+    tokens = u.context.tokens
+    windowSize = u.context.window
+    usd = u.cost?.usd ?? null
     limits = limitsOf(u.rateLimits)
   } catch { /* no reading yet */ }
   const last = await read($, lastReplyAtAtom)
@@ -280,6 +289,16 @@ async function refreshCache($: EngineInterface, ttl: number): Promise<void> {
     }
   } catch (err) {
     $.ui.toast(`Could not refresh the prompt cache: ${(err as Error).message}`)
+  }
+}
+
+// The band's Summarize: the summary /compact makes, so a heavy conversation carries on lighter. Only between turns.
+async function summarize($: EngineInterface): Promise<void> {
+  try {
+    const r = await $.session.compact()
+    $.ui.toast(r && 'skip' in r && r.skip ? 'Another mod declined the summary.' : 'Conversation summarized: it carries on from the summary.')
+  } catch {
+    $.ui.toast('Summarize works between turns: try again when this one finishes.')
   }
 }
 
@@ -344,6 +363,10 @@ export const register: Register = (on, options) => {
     if (e.agentId === undefined) {
       const now = await $.clock.now()
       await update($, lastReplyAtAtom, () => now)
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const usage = result.usage as any
+      lastModel = usage?.model ?? e.model
+      lastHit = hitRate(usage)
     }
     return result
   })
@@ -559,18 +582,25 @@ export const register: Register = (on, options) => {
       // The usage line: context, the cache countdown with ↻ cache to refresh it, the 5-hour and weekly limits.
       if (room >= 1) {
         const parts = rowParts({
-          contextPct, working, leadMs: WARN_LEAD_MS, fiveHour: limits.fiveHour, week: limits.week,
-          cacheLeftMs: cacheLeft(nowMs, await read($, lastReplyAtAtom), ttl),
+          model: lastModel, contextPct, tokens, window: windowSize, working, leadMs: WARN_LEAD_MS,
+          fiveHour: limits.fiveHour, fiveHourResetsAt: limits.fiveHourResetsAt, week: limits.week,
+          cacheLeftMs: cacheLeft(nowMs, await read($, lastReplyAtAtom), ttl), hitPct: lastHit, usd, nowMs: Date.now(),
         })
+        const look = (tone: string) => tone === 'dim' ? { dimColor: true }
+          : tone === 'model' ? { color: GS.clay, bold: true }
+          : { color: tone === 'ok' ? 'success' : tone === 'warn' ? 'warning' : 'error' }
         rows.push(
           <Box key="gs-usage" flexDirection="row" justifyContent="space-between" gap={1}>
             <Text wrap="truncate-end">
               {parts.flatMap((p, i) => [
                 i ? <Text key={`us${i}`} dimColor>{'  ·  '}</Text> : null,
-                <Text key={`up${i}`} {...(p.tone === 'dim' ? { dimColor: true } : { color: p.tone === 'warn' ? 'warning' : 'error' })}>{p.text}</Text>,
+                <Text key={`up${i}`} {...look(p.tone)}>{p.text}</Text>,
               ])}
             </Text>
-            <Box flexShrink={0}><Button key="gs-cache" label=" ↻ cache " plain dimColor onPress={() => void refreshCache($, ttl)} /></Box>
+            <Box flexDirection="row" gap={1} flexShrink={0}>
+              <Button key="gs-cache" label=" ↻ cache " plain dimColor onPress={() => void refreshCache($, ttl)} />
+              <Button key="gs-sum" label=" Summarize " variant="secondary" onPress={() => void summarize($)} />
+            </Box>
           </Box>,
         )
         room -= 1
