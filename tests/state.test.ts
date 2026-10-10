@@ -111,3 +111,19 @@ test("gateOf: a task file's check line, or null", () => {
   expect(gateOf("checks: []\n")).toBe(null);
   expect(gateOf("nothing here\n")).toBe(null);
 });
+
+import { capReached, missingForLive, parseState as parseStateNew } from "../hooks/state.ts";
+
+test("the live test's inputs: provider key name, lab and spend cap, and what is still missing", () => {
+  const st = parseStateNew("stage: build\nprovider env: OPENROUTER_API_KEY\nlab url: http://localhost:3000\nspend cap: $25\n");
+  expect(st.providerEnv).toBe("OPENROUTER_API_KEY");
+  expect(st.labUrl).toBe("http://localhost:3000");
+  expect(st.spendCapUsd).toBe(25);
+  expect(missingForLive(st, { hasKey: true, labOk: true })).toEqual([]);
+  expect(missingForLive(st, { hasKey: false, labOk: null })).toEqual(["the key variable OPENROUTER_API_KEY is not set"]);
+  expect(missingForLive(parseStateNew("stage: build\n"), { hasKey: false, labOk: null })).toHaveLength(3);
+  expect(capReached(25.01, 25)).toBe(true);
+  expect(capReached(3, 25)).toBe(false);
+  expect(capReached(999, null)).toBe(false);
+});
+

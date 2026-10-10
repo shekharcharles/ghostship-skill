@@ -13,7 +13,17 @@ Ghostship is a **skill**, not a program — there is no engine and no CLI. The d
 
 1. **STOP 1 — approve the spec.** After `spec.md` is written, the owner approves it (it defines exactly what "done" means). Ask once with `AskUserQuestion`.
 
+**Before STOP 1, you ask for the live-test inputs yourself. Nobody has to remember them.** A build that claims real detection is only proven against a real target, with a real model, inside a budget. So during the interview, and before the spec is written, ask the owner, in one `AskUserQuestion` call:
+   1. **The AI provider** and the **name of the environment variable** that holds its key (`OPENROUTER_API_KEY`, say). Never ask for the key value, and never write it into any file. The owner puts the key in the project's `.env`.
+   2. **The lab**: a deliberately vulnerable application with known findings to test against. Search for candidates first (GitHub and the web: "deliberately vulnerable <domain> application"). Present two or three, each with the findings it contains, and recommend one. The owner picks.
+   3. **The spend cap** in dollars for the whole build (for example `$25`).
+   Write them to `STATE.md` as `provider env:`, `lab url:` and `spend cap:`. If the owner cannot answer one now, STOP 1 does not pass: ask again. Do not start the build without all three.
+
+Then the spec carries a **live proof** criterion: a full run against the lab, with the provider, that must report the lab's known findings. Its gate is that run, not a unit test. A capability that claims real detection is `unproven` until that run passes, and a stub-only pass is recorded as unproven, never as done.
+
 **There is no stop at release.** After STOP 1 you run **unattended all the way to a tagged release**: write the plan, cut the tasks, build and judge every task, resolve decisions yourself (see the decision policy), assemble the release, and — once the release gate is green — **tag it and report, without asking**. If you hit a blocker mid-build, record it in `STATE.md`, work around it or park the task, and keep going. Asking the owner anything after STOP 1 is a bug. The only thing that stops a release is a **red gate** (the suite not green, or an acceptance criterion neither `pass` nor `parked`): that is a failure to report and fix, not an approval to wait for — never ship a red gate, and never ask permission to ship a green one.
+
+**Spend.** The build stops by itself at the spend cap in `STATE.md`: the mod takes control back when the session reaches it, and says so on the pane. Never raise the cap yourself.
 
 **Decision policy — fast, automatic decisions.** Because there is no stop at release, decisions are never batched for the owner. The moment a parking condition raises a decision, **resolve it immediately with its recommended answer and keep building** — a quick, first-instinct call, not a deliberation. Write the decision to `DECISIONS.md` marked `auto-applied: <the option you took>` with a one-line reason, and act on it at once (e.g. cut a dropped task's link and reopen the tasks that were only waiting on it). The release report lists every auto-applied decision. The single exception: a decision that **rewrites an acceptance criterion** changes the definition of done — apply it, but call it out at the top of the release report (and route it through `/ghostship change`) rather than burying it; never silently change what "done" means.
 
@@ -40,6 +50,7 @@ interview ─▶ PRD.md ─▶ spec.md ─(STOP 1)─▶ plan.md ─▶ tasks/T#
 7. **Release (automatic).** When every task is done or parked, run the full suite and every acceptance criterion's check yourself, then write the release summary and — if the gate is green — tag the release and report. Do not ask the owner to approve it.
    - **Traceability:** one row per criterion — `A#` · the task(s) that cover it · its check · the result (`pass`, or `parked` with the reason). Every criterion appears; none is silently missing.
    - **Shipped / parked:** what works now, and each parked task with its reason.
+   - **Live proof:** the live run against the lab, its date, the cost and the findings it reported against the lab's known list. A capability without a live pass is listed as unproven.
    - **Release gate:** full suite green, every criterion `pass` or `parked`, README/docs describe what shipped. Fix what you can; a green gate ships automatically, a red gate does not ship and is reported with what is blocking it.
    - **Decisions:** every item in `DECISIONS.md`, each with its options and your recommendation.
    Then **tag the release and report** — do not ask the owner to approve it. The report lists every auto-applied decision (recommended option taken, with its reason) and every parked task. A decision that rewrote an acceptance criterion is called out at the top and was routed through `/ghostship change` (re-approve that criterion, rebuild only its tasks) before tagging.

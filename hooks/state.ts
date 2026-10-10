@@ -29,6 +29,11 @@ export type GhostshipState = {
   judge: string | null
   red: string | null
   green: string | null
+  // The live proof's inputs, agreed at STOP 1: the environment variable that holds the AI provider's key (its name, never the value),
+  // the lab's address, and the spend cap in dollars the build may not pass.
+  providerEnv: string | null
+  labUrl: string | null
+  spendCapUsd: number | null
 }
 
 /** Parse docs/ghostship/STATE.md. Tolerant of spacing and order; an unknown stage → null. */
@@ -51,7 +56,26 @@ export function parseState(text: string): GhostshipState {
     judge: field('judge'),
     red: field('red'),
     green: field('green'),
+    providerEnv: field('provider env'),
+    labUrl: field('lab url'),
+    spendCapUsd: Number((field('spend cap') || '').replace(/[$,\s]/g, '')) || null,
   }
+}
+
+/** What is still missing before a live test can run: the provider's key, the lab and the spend cap. Empty when ready. */
+export function missingForLive(st: GhostshipState, env: { hasKey: boolean; labOk: boolean | null }): string[] {
+  const missing: string[] = []
+  if (!st.providerEnv) missing.push('the AI provider (its key variable is not named in STATE.md)')
+  else if (!env.hasKey) missing.push(`the key variable ${st.providerEnv} is not set`)
+  if (!st.labUrl) missing.push('the lab to test against is not chosen')
+  else if (env.labOk === false) missing.push(`the lab at ${st.labUrl} does not answer`)
+  if (!st.spendCapUsd) missing.push('no spend cap is set')
+  return missing
+}
+
+/** Whether the session has reached the spend cap the owner set; a cap of null never stops anything. */
+export function capReached(spentUsd: number | null, cap: number | null): boolean {
+  return spentUsd !== null && cap !== null && spentUsd >= cap
 }
 
 export type Task = { id: string; phase: string; status: string; label: string }

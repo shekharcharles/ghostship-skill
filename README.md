@@ -56,6 +56,10 @@ The pane reads the project's own files (`package.json` or `README.md`, `docs/gho
 
 A project the earlier engine edition ran (a `.ghostship/` folder, the `gs` commands, the Bridge pane) moves over with `/ghostship:ghostship adopt`. The skill stops the old runner and runs `skills/ghostship/scripts/from-engine.mjs`, which writes `docs/ghostship/` from `.ghostship/state/state.json`: the stage, the board (merged tasks done, retired ones parked, and the tasks waiting on them parked with a decision applied and reported), the evidence, and links to the approved PRD and acceptance checks, which stay approved. It takes the engine's hooks and status line out of `.claude/settings.json` (a backup is kept beside it) and leaves `.ghostship/` in place. Until then the band and the pane say the project still runs the old engine.
 
+## Live test and spend cap
+
+Before STOP 1 the skill asks for three things: the AI provider and the name of its key variable (never the key), a lab to test against (a deliberately vulnerable application, with two or three candidates found by search and a recommendation), and a spend cap in dollars. They are written to `STATE.md` as `provider env:`, `lab url:` and `spend cap:`. Every 30 seconds the pane checks them: the key variable is set, the lab answers, and a cap is set. The **LIVE TEST** card lists what is missing. When the session reaches the cap, control is taken back and the pane says so.
+
 ## Control
 
 **Take back control** (Overview, or the ◆ Ghostship menu → Control) stops every agent action at once: the main thread and each subagent are refused, the build is not nudged to carry on, and the pane's top line says so. **Give control back** puts `/ghostship:ghostship resume` in the prompt for you to send. Refusals show on the top line too: a delete that could remove more than it names, a question during the unattended build, and any action while control is taken back. The **ACTIONS** card lists the last twelve actions with ✓ done, ✗ refused, or a spinner while running.
@@ -74,7 +78,7 @@ The pane is tabbed, so you pick a view instead of scrolling one long list: **Ove
 - `types/index.d.ts` — the `$.state` contract
 - `tests/` — `claude plugin test` suites
 
-Status: **0.10.0**, in active development. The earlier engine edition lives at github.com/shekharcharles/ghostship.
+Status: **0.11.0**, in active development. The earlier engine edition lives at github.com/shekharcharles/ghostship.
 
 ## Credits
 

@@ -13,6 +13,7 @@ import { fitAgents, roleOf, type Running } from './agents.ts'
 import { activityOf, partialArgsOf, thoughtOf, wordsAdded } from './activity.ts'
 import { DELETE_REFUSED, riskyDelete } from './guard.ts'
 import { WORDMARK, WORDMARK_WIDTH } from './art.ts'
+import { capReached, missingForLive } from './state.ts'
 import { RUFLO } from './lib.ts'
 import {
   addStep, cacheLeft, coldWriteUsd, countdown, endAgent, fmtK, hitRate, keepWarmDue, keepWarmLead, limitsOf, splitSpend, modelLabel, projectTotal,
@@ -53,6 +54,8 @@ const gatesAtom = atom({ plugin: 'ghostship', key: 'gates' } as const, {} as Rec
 // latest event, and the ACTIONS card the recent actions of the main thread and every agent.
 const pausedAtom = atom({ plugin: 'ghostship', key: 'paused' } as const, false)
 const eventAtom = atom({ plugin: 'ghostship', key: 'paneEvent' } as const, null as { text: string; tone: 'bad' | 'warn' | 'ok'; at: number } | null)
+// The live test's readiness, checked every 30 s: what is still missing, and the spend cap the owner set.
+const readinessAtom = atom({ plugin: 'ghostship', key: 'readiness' } as const, null as { missing: string[]; cap: number | null; at: number } | null)
 const actionsAtom = atom({ plugin: 'ghostship', key: 'actions' } as const, [] as { id: string; label: string; status: 'run' | 'ok' | 'refused'; at: number }[])
 let actionSeq = 0
 const PAUSED_REFUSED = 'The owner took control back: nothing is done until they give control back. Stop here and wait; do not continue the task.'
@@ -465,6 +468,11 @@ async function usageTick($: EngineInterface): Promise<void> {
     windowSize = u.context.window
     usd = u.cost?.usd ?? null
     limits = limitsOf(u.rateLimits)
+    const cap = (await read($, readinessAtom))?.cap ?? null
+    if (capReached(usd, cap) && !(await read($, pausedAtom))) {
+      await setPaused($, true)
+      await noteEvent($, `Spend cap reached: $${(usd ?? 0).toFixed(2)} of $${cap}. Control is taken back. Raise the cap in STATE.md, then give control back.`, 'bad')
+    }
   } catch { /* no reading yet */ }
   const ttl = await ttlNow($)
   const now = await $.clock.now()
@@ -522,6 +530,27 @@ async function setKeepWarm($: EngineInterface, hours: number): Promise<void> {
   const now = await $.clock.now()
   await update($, keepWarmAtom, () => (hours ? { until: now + hours * 3_600_000, hours } : null))
   $.ui.toast(hours ? `Keep warm on for ${hours}h: the cache is refreshed before it goes cold; each refresh is one small request.` : 'Keep warm off.')
+}
+
+// Whether the live test can run: the provider's key is set, the lab answers and a spend cap is set. Checked every 30 s, not on each redraw.
+async function checkReadiness($: EngineInterface): Promise<void> {
+  const st = await readState($)
+  if (!st || !st.stage) { await update($, readinessAtom, () => null); return }
+  let hasKey = false
+  // The key's name comes from STATE.md; only a plain variable name is checked, and it is passed as an argument, never through a shell.
+  if (st.providerEnv && /^[A-Z_][A-Z0-9_]*$/.test(st.providerEnv)) {
+    try { hasKey = (await $.process.run(['printenv', st.providerEnv])).exitCode === 0 } catch { hasKey = false }
+  }
+  let labOk: boolean | null = null
+  if (st.labUrl) { try { labOk = (await $.http.fetch(st.labUrl)).status < 500 } catch { labOk = false } }
+  const missing = missingForLive(st, { hasKey, labOk })
+  const at = await $.clock.now()
+  const prev = await read($, readinessAtom)
+  await update($, readinessAtom, () => ({ missing, cap: st.spendCapUsd, at }))
+  // Once per change, on the pane's top line, while the build needs the live test.
+  if (missing.length && ['plan', 'tasks', 'build', 'release'].includes(st.stage) && prev?.missing.join('|') !== missing.join('|')) {
+    await noteEvent($, `The live test can't run yet: ${missing.join('; ')}. Set it in docs/ghostship/STATE.md.`, 'warn')
+  }
 }
 
 // The one line at the top of the pane: the latest event, and what it means.
@@ -610,6 +639,8 @@ export const register: Register = on => {
     // Live refresh: the snapshot every 1.5 s, and a redraw of the band and panes every second.
     try { $.clock.every(1500, () => { ticks += 1; if (ticks % 6 === 1) void readBranch($).catch(() => undefined); void publish($).catch(() => undefined) }) } catch { /* no live refresh */ }
     try { $.clock.every(1000, () => void usageTick($).catch(() => undefined)) } catch { /* no redraw timer */ }
+    void checkReadiness($).catch(() => undefined)
+    try { $.clock.every(30_000, () => void checkReadiness($).catch(() => undefined)) } catch { /* no readiness check */ }
     try { $.clock.every(SPIN_MS, () => { if (buildBusy()) $.ui.invalidate('ui.render') }) } catch { /* no spinner */ }
     // The project's spend so far, every session together; this session adds itself after each turn.
     try {
@@ -1142,6 +1173,7 @@ export const register: Register = on => {
     const paused = await read($, pausedAtom)
     const pevent = await read($, eventAtom)
     const actions = await read($, actionsAtom)
+    const readiness = await read($, readinessAtom)
     const ttl = await ttlNow($)
     const cacheLeftMs = cacheLeft(nowMs, await read($, lastReplyAtAtom), ttl)
     const money = (v: number | null | undefined) => (v == null ? '—' : `$${v.toFixed(2)}`)
@@ -1318,6 +1350,13 @@ export const register: Register = on => {
               : <Button key="c-take" label=" Take back control " variant="secondary" onPress={() => void setPaused($, true)} />}
           </Box>,
         ])}
+        {tab === 'overview' && readiness ? section('s-live', readiness.missing.length ? 'warning' : 'subtle', [
+          head('LIVE TEST', readiness.missing.length ? 'not ready' : 'ready'),
+          ...(readiness.missing.length
+            ? readiness.missing.map((m, i) => <Text key={`lt${i}`} color="warning" wrap="wrap">{`✗ ${m}`}</Text>)
+            : [<Text key="lt-ok" color="success">✓ provider, lab and spend cap are set</Text>]),
+          <Text key="lt-cap" dimColor>{readiness.cap ? `spend cap $${readiness.cap}` : 'no spend cap set'}</Text>,
+        ]) : null}
         {tab === 'overview' && actions && actions.length ? section('s-actions', 'subtle', [
           head('ACTIONS', `${actions.length} recent`),
           ...[...actions].reverse().slice(0, 8).map((a, i) => (
