@@ -44,7 +44,7 @@ describe("the pane shows the app", () => {
     const ui = await $.ui.mount({ plugin: "ghostship", surface: "terminal", ...PANE });
     await shows(ui, "shop");
     await shows(ui, "A small shop");
-    await shows(ui, "G H O S T S H I P");
+    await shows(ui, "╔═╗╦ ╦╔═╗╔═╗╔╦╗╔═╗╦ ╦╦╔═╗");
     await shows(ui, "● Build");
     await shows(ui, "1/2 tasks · 50%");
     await ui.press({ key: "tab-plan" });

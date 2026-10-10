@@ -12,7 +12,7 @@ import { appEntries, appIdentity } from './overview.ts'
 import { fitAgents, roleOf, type Running } from './agents.ts'
 import { activityOf, partialArgsOf, thoughtOf, wordsAdded } from './activity.ts'
 import { DELETE_REFUSED, riskyDelete } from './guard.ts'
-import { GHOST_ART, GHOST_ART_WIDTH } from './art.ts'
+import { WORDMARK, WORDMARK_WIDTH } from './art.ts'
 import {
   addStep, cacheLeft, coldWriteUsd, countdown, endAgent, fmtK, hitRate, keepWarmDue, keepWarmLead, limitsOf, splitSpend, modelLabel, projectTotal,
   refreshVerdict, rowParts, shouldWarn, span, ttlMs, usageUsd,
@@ -170,6 +170,18 @@ type Fs = { fs: { read: (p: string) => Promise<string> } }
 // The pane's control, top right: – minimizes it to the ◆ Ghostship button in the prompt's footer, whose panel opens it again.
 // A plain button: the engine may take a dismiss-role button before its onPress runs.
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
+// The GHOSTSHIP wordmark, three coloured rows centred in the space it is given.
+function wordmark(ui: any, key: string): any {
+  const { Box, Text } = ui
+  return (
+    <Box key={key} flexDirection="column" alignItems="center">
+      {WORDMARK.map((row, i) => (
+        <Text key={`${key}-${i}`} bold>{row.map((seg, j) => <Text key={`${key}-${i}-${j}`} color={seg.color}>{seg.text}</Text>)}</Text>
+      ))}
+    </Box>
+  )
+}
+
 function paneControls(ui: any, $: EngineInterface): any {
   const { Box, Button } = ui
   return (
@@ -831,16 +843,12 @@ export const register: Register = on => {
       // Fit the row budget: the panel drops its two section headings first, then its own border.
       const room = budget - used
       const panelWidth = Math.min(76, Math.max(40, (e.props.bodyColumns || 80) - 2))
-      const artOn = panelWidth >= GHOST_ART_WIDTH + 4 && room >= 1 + (pIn ? 2 : 1) + 2 + 1 + GHOST_ART.length + 4
-      const base = 1 + (pIn ? 2 : 1) + 2 + 1 + (artOn ? GHOST_ART.length : 0)
+      const artOn = panelWidth >= WORDMARK_WIDTH + 4 && room >= 1 + (pIn ? 2 : 1) + 2 + 1 + WORDMARK.length + 4
+      const base = 1 + (pIn ? 2 : 1) + 2 + 1 + (artOn ? WORDMARK.length : 0)
       const withHeads = room >= base + 2 + 2
       const pBordered = room >= base + (withHeads ? 2 : 0) + 2
       const rows: any[] = [
-        ...(artOn ? [
-          <Box key="p-art" flexDirection="column" alignItems="center">
-            {GHOST_ART.map((line, i) => <Text key={`pa${i}`} bold color={GS.clay}>{line}</Text>)}
-          </Box>,
-        ] : []),
+        ...(artOn ? [wordmark(ui, 'p-art')] : []),
         <Box key="p-head" flexDirection="row" justifyContent="space-between">
           {artOn ? <Box /> : <Text bold color={GS.clay}>◆  G H O S T S H I P</Text>}
           <Box flexDirection="row" gap={1} flexShrink={0}>
@@ -1221,8 +1229,8 @@ export const register: Register = on => {
       <Box flexDirection="column" gap={cards ? 0 : 1}>
         {tabBar}
         {tab === 'overview' && section('s-banner', edge, [
-          cards && cols >= GHOST_ART_WIDTH + 6
-            ? <Box key="brand" flexDirection="column">{GHOST_ART.map((line, i) => <Text key={`ga${i}`} bold color={GS.clay}>{line}</Text>)}</Box>
+          cards && cols >= WORDMARK_WIDTH + 8
+            ? wordmark(ui, 'brand')
             : <Text key="brand" bold color={GS.clay}>G H O S T S H I P</Text>,
           <Text key="ver" dimColor>{version ? `v${version}` : ' '}</Text>,
           <Box key="app" justifyContent="space-between">
