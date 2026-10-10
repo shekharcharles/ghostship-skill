@@ -56,8 +56,10 @@ export function parseState(text: string): GhostshipState {
     judge: field('judge'),
     red: field('red'),
     green: field('green'),
-    providerEnv: field('provider env'),
-    labUrl: field('lab url'),
+    // Only the variable's name: a note after it (`(value supplied by owner, not stored)`) is not part of it.
+    providerEnv: ((field('provider env') || field('provider key variable') || '').match(/^[A-Z_][A-Z0-9_]*/)?.[0]) || null,
+    // A lab is named by its address; a line saying it is not chosen names none.
+    labUrl: field('lab url') || ((field('live lab') || '').match(/https?:\/\/\S+/)?.[0] ?? null),
     spendCapUsd: Number((field('spend cap') || '').replace(/[$,\s]/g, '')) || null,
   }
 }

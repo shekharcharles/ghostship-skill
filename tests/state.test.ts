@@ -134,3 +134,12 @@ test("a board with a Name column names each task; an older board still parses", 
   expect(older[0]).toMatchObject({ id: "T001", name: "", phase: "1", status: "done", label: "setup" });
 });
 
+test("STATE.md's own wording for the live-test fields is read", () => {
+  const st = parseStateNew("stage: build\nprovider key variable: CRUCIBLE_MODEL_API_KEY (value supplied by owner, not stored)\nlive lab: not chosen\nspend cap: not set\n");
+  expect(st.providerEnv).toBe("CRUCIBLE_MODEL_API_KEY");
+  expect(st.labUrl).toBe(null);
+  expect(st.spendCapUsd).toBe(null);
+  const lab = parseStateNew("stage: build\nlive lab: http://localhost:3000 (DVWA)\n");
+  expect(lab.labUrl).toBe("http://localhost:3000");
+});
+

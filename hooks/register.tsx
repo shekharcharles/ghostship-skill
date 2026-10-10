@@ -545,12 +545,7 @@ async function checkReadiness($: EngineInterface): Promise<void> {
   if (st.labUrl) { try { labOk = (await $.http.fetch(st.labUrl)).status < 500 } catch { labOk = false } }
   const missing = missingForLive(st, { hasKey, labOk })
   const at = await $.clock.now()
-  const prev = await read($, readinessAtom)
   await update($, readinessAtom, () => ({ missing, cap: st.spendCapUsd, at }))
-  // Once per change, on the pane's top line, while the build needs the live test.
-  if (missing.length && ['plan', 'tasks', 'build', 'release'].includes(st.stage) && prev?.missing.join('|') !== missing.join('|')) {
-    await noteEvent($, `The live test can't run yet: ${missing.join('; ')}. Set it in docs/ghostship/STATE.md.`, 'warn')
-  }
 }
 
 // The one line at the top of the pane: the latest event, and what it means.
@@ -1325,8 +1320,8 @@ export const register: Register = on => {
 
     return (
       <Box flexDirection="column" gap={cards ? 0 : 1}>
-        {pevent ? <Text key="ev-top" bold color={pevent.tone === 'bad' ? 'error' : pevent.tone === 'warn' ? 'warning' : 'success'} wrap="truncate-end">{pevent.text}</Text> : null}
         {tabBar}
+        {pevent ? <Text key="ev-top" bold color={pevent.tone === 'bad' ? 'error' : pevent.tone === 'warn' ? 'warning' : 'success'} wrap="truncate-end">{pevent.text}</Text> : null}
         {tab === 'overview' && section('s-banner', edge, [
           cards && cols >= WORDMARK_WIDTH + 8
             ? wordmark(ui, 'brand')
