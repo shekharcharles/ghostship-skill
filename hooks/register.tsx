@@ -951,7 +951,9 @@ export const register: Register = on => {
         const lines = rowsOf(`Main thread › ${doing}`, bandWidth, Math.min(3, room))
         lines.forEach((line, i) => rows.push(
           <Box key={`gs-think${i}`} flexDirection="row">
-            <Text color={GS.mist} wrap="truncate-end">{i === 0 ? `${SPIN[Math.floor(nowMs / SPIN_MS) % SPIN.length]} ${line}` : `  ${line}`}</Text>
+            {i === 0
+              ? <Text wrap="truncate-end"><Text color={GS.green}>{`${SPIN[Math.floor(nowMs / SPIN_MS) % SPIN.length]} `}</Text><Text color={GS.mist}>{line}</Text></Text>
+              : <Text color={GS.mist} wrap="truncate-end">{`  ${line}`}</Text>}
           </Box>,
         ))
         room -= lines.length
@@ -995,7 +997,7 @@ export const register: Register = on => {
         lines.forEach((line, j) => rows.push(
           <Box key={`gs-ag${i}-${j}`} flexDirection="row">
             {j === 0
-              ? <Box flexShrink={0}><Text color={color}>{`${SPIN[(t + i) % SPIN.length]} `}</Text><Text bold>{a.name.slice(0, 40)}</Text></Box>
+              ? <Box flexShrink={0}><Text color={GS.green}>{`${SPIN[(t + i) % SPIN.length]} `}</Text><Text color={color} bold>{a.name.slice(0, 40)}</Text></Box>
               : <Box flexShrink={0}><Text>{'    '}</Text></Box>}
             <Text wrap="truncate-end">{line}</Text>
             {j === 0 ? <Box flexShrink={0}><Text dimColor>{`  ${clock(nowMs - a.startMs)}`}</Text></Box> : null}
@@ -1125,7 +1127,7 @@ export const register: Register = on => {
       <Text key={`${key}-h`} bold color={color}>{`${glyph} ${title}  ${tasks.length}`}</Text>,
       ...capped(key, tasks.map((t, i) => (
         <Box key={`${key}-${t.id}`} flexDirection="row">
-          <Box flexShrink={0}><Text color={color} bold={spin}>{`${spin ? SPIN[(Math.floor(nowMs / SPIN_MS) + i) % SPIN.length] : glyph} `}</Text></Box>
+          <Box flexShrink={0}><Text color={spin ? GS.green : color} bold={spin}>{`${spin ? SPIN[(Math.floor(nowMs / SPIN_MS) + i) % SPIN.length] : glyph} `}</Text></Box>
           <Text wrap="truncate-end">{`${t.id}  `}<Text color="subtle">{t.label}</Text></Text>
         </Box>
       ))),
@@ -1177,7 +1179,7 @@ export const register: Register = on => {
               const run = isBuilding(t)
               const ev = latestVerdict.get(t.id)
               const mark = run ? SPIN[frame % SPIN.length]! : isBuilt(t) ? '✓' : t.status === 'parked' ? '⚠' : '○'
-              const color = isBuilt(t) ? GS.green : run ? GS.clay : t.status === 'parked' ? GS.amber : GS.mist
+              const color = isBuilt(t) ? GS.green : run ? GS.green : t.status === 'parked' ? GS.amber : GS.mist
               const word = isBuilt(t) ? 'done' : run ? (t.status === 'judging' ? 'judging' : 'building') : t.status === 'parked' ? 'on hold' : 'to do'
               return [
                 <Box key={`pt-${t.id}`} flexDirection="row" justifyContent="space-between" gap={1}>
@@ -1223,9 +1225,9 @@ export const register: Register = on => {
             const role = roleOf(a.name)
             const live = running.get(a.id)
             const mark = a.id === 'main'
-              ? <Text color={GS.clay}>{working ? `${SPIN[Math.floor(nowMs / SPIN_MS) % SPIN.length]} ` : '◆ '}</Text>
+              ? <Text color={working ? GS.green : GS.clay}>{working ? `${SPIN[Math.floor(nowMs / SPIN_MS) % SPIN.length]} ` : '◆ '}</Text>
               : a.running
-                ? <Text color={role === 'judge' ? 'warning' : role === 'builder' ? 'claude' : 'subtle'}>{`${SPIN[(Math.floor(nowMs / SPIN_MS) + i) % SPIN.length]} `}</Text>
+                ? <Text color={GS.green}>{`${SPIN[(Math.floor(nowMs / SPIN_MS) + i) % SPIN.length]} `}</Text>
                 : <Text color="success">✓ </Text>
             return (
               <Box key={`pa-${a.id}`} flexDirection="column">
