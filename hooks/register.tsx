@@ -880,6 +880,16 @@ export const register: Register = on => {
         room -= 1
       }
 
+      // What the main thread is thinking right now, one line under the usage, while a turn runs.
+      if (working && room >= 1 && thoughts.get('main')) {
+        rows.push(
+          <Box key="gs-think" flexDirection="row">
+            <Text color={GS.mist} wrap="truncate-end">{`thinking › …${thoughts.get('main')!.replace(/\s+/g, ' ').trim().slice(-120)}`}</Text>
+          </Box>,
+        )
+        room -= 1
+      }
+
       // A STOP waiting on the owner stays until it is answered; otherwise a verdict shows for 20 seconds after it lands.
       if (snap && inProject && room >= 1) {
         if (snap.awaiting) {
