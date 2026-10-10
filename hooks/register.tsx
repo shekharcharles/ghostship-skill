@@ -8,12 +8,14 @@ import {
 import type { VoyageSnap } from '../types'
 import type { BandProps } from './band.tsx'
 import { GS, fmtTokens } from './lib.ts'
+import { appEntries, appIdentity, featuresOf } from './overview.ts'
 
 // Ghostship's two live surfaces: the band above the prompt (animated Client on the terminal, one SVG on the
 // desktop) and the voyage pane docked right. Both only reflect the skill's own files (docs/ghostship/STATE.md
 // + BOARD.md) — no engine, no hidden state. Inert outside a Ghostship project.
 
 const PANE = 'ghostship-voyage'
+const APP_PANE = 'ghostship-overview'
 const STATE_FILE = 'docs/ghostship/STATE.md'
 const BOARD_FILE = 'docs/ghostship/BOARD.md'
 
@@ -24,9 +26,11 @@ const spendAtom = atom({ plugin: 'ghostship', key: 'spend' } as const, null)
 const evidenceAtom = atom({ plugin: 'ghostship', key: 'evidence' } as const, [])
 
 // Self-update: where the plugin lives on GitHub and how it's installed. Overridable by env.
-const REPO = process.env.GHOSTSHIP_REPO || 'shekharcharles/ghostship-skill'
-const BRANCH = process.env.GHOSTSHIP_BRANCH || 'main'
-const MARKET = process.env.GHOSTSHIP_MARKET || 'ghostship'
+// A hooks module runs without Node, so `process` may not exist: read the overrides only when it does.
+const env = (typeof process !== 'undefined' && process.env) || {}
+const REPO = env.GHOSTSHIP_REPO || 'shekharcharles/ghostship-skill'
+const BRANCH = env.GHOSTSHIP_BRANCH || 'main'
+const MARKET = env.GHOSTSHIP_MARKET || 'ghostship'
 const PLUGIN = 'ghostship'
 const RAW_MANIFEST = `https://raw.githubusercontent.com/${REPO}/${BRANCH}/.claude-plugin/plugin.json`
 
@@ -61,6 +65,13 @@ async function readState($: Fs): Promise<GhostshipState | null> {
 }
 async function readBoard($: Fs): Promise<Task[]> {
   try { return parseBoard(await $.fs.read(BOARD_FILE)) } catch { return [] }
+}
+// The overview reads files that may not exist (a plain app has no README or package.json).
+async function tryRead($: Fs, path: string): Promise<string | null> {
+  try { return await $.fs.read(path) } catch { return null }
+}
+async function tryList($: { fs: { list: (p?: string) => Promise<{ name: string; kind: string }[]> } }): Promise<{ name: string; kind: string }[]> {
+  try { return await $.fs.list('.') } catch { return [] }
 }
 
 /** A snapshot from parsed state, with a given elapsed. Pure — safe to call while drawing. */
@@ -165,6 +176,7 @@ export const register: Register = on => {
     try { await $.command.register({ name: 'ghostship', description: 'Open the Ghostship voyage pane', immediate: true }) } catch { /* no command */ }
     try { await $.command.register({ name: 'ghostship-band', description: 'Ghostship: show or hide the voyage band', immediate: true }) } catch { /* no command */ }
     try { await $.command.register({ name: 'ghostship-update', description: 'Ghostship: check for and install the latest version', immediate: true }) } catch { /* no command */ }
+    try { await $.command.register({ name: 'ghostship-overview', description: 'Ghostship: show the whole app — what it is, what is built, its files', immediate: true }) } catch { /* no command */ }
     try { const v = await $.store.get('hidden'); if (typeof v === 'boolean') await update($, hiddenAtom, () => v) } catch { /* nothing stored */ }
     try { await refreshStatus($) } catch { /* no status */ }
     try { await publish($) } catch { /* the render falls back to a direct read */ }
@@ -184,6 +196,11 @@ export const register: Register = on => {
     return { text: 'Ghostship voyage pane opened.' }
   })
 
+  on('command.run', { command: 'ghostship-overview' }, async $ => {
+    await $.ui.open({ id: APP_PANE, title: 'Overview' })
+    return { text: 'Ghostship overview pane opened.' }
+  })
+
   on('command.run', { command: 'ghostship-update' }, async $ => {
     await checkUpdate($)
     const u = await read($, updateAtom)
@@ -199,6 +216,59 @@ export const register: Register = on => {
   })
 
   // ---- the band, above the prompt ----
+  // The whole app at a glance. Reads the project's files as it draws, like the voyage pane does.
+  on('ui.render', { component: 'Pane', requestId: APP_PANE }, async ($, e) => {
+    const { Box, Text } = $.ui.resolve(e)
+    const st = await readState($)
+    const tasks = await readBoard($)
+    const { name, about } = appIdentity(await tryRead($, 'package.json'), await tryRead($, 'README.md'))
+    const files = appEntries(await tryList($))
+    const feats = featuresOf(tasks)
+    const done = tasks.filter(t => t.status === 'done').length
+    const room = Math.max(5, (e.viewport?.rows ?? 30) - 16)
+    const bar = progressBar(done, tasks.length, 12) || '░'.repeat(12)
+
+    return (
+      <Box flexDirection="column" paddingX={1}>
+        <Box flexDirection="row" justifyContent="space-between">
+          <Text bold color={GS.clay}>◆ {name ?? 'App'} <Text color={GS.mist}>overview</Text></Text>
+          <Text bold color={st?.awaiting ? GS.amber : GS.clay}>{st?.stage ?? 'no stage'}</Text>
+        </Box>
+        {about ? <Text color={GS.mist} wrap="truncate-end">{about}</Text> : null}
+        <Text color={GS.subtle}>{'─'.repeat(36)}</Text>
+
+        <Box flexDirection="row" marginTop={1}>
+          <Text color={GS.clay}>{bar}</Text>
+          <Text color={GS.mist}> {done}/{tasks.length} tasks done</Text>
+        </Box>
+
+        <Box flexDirection="column" marginTop={1}>
+          <Text bold color={GS.green}>✓ Built</Text>
+          {feats.built.length === 0 && <Text color={GS.subtle}>  nothing built yet</Text>}
+          {feats.built.slice(0, room).map(f => <Text color={GS.green} wrap="truncate-end">  {f}</Text>)}
+          <Text bold color={GS.amber}>● Building</Text>
+          {feats.active.length === 0 && <Text color={GS.subtle}>  nothing in progress</Text>}
+          {feats.active.slice(0, room).map(f => <Text color={GS.amber} wrap="truncate-end">  {f}</Text>)}
+          <Text bold color={GS.mist}>○ Planned</Text>
+          {feats.planned.length === 0 && <Text color={GS.subtle}>  nothing planned</Text>}
+          {feats.planned.slice(0, room).map(f => <Text color={GS.mist} wrap="truncate-end">  {f}</Text>)}
+        </Box>
+
+        <Box flexDirection="column" marginTop={1}>
+          <Text bold color={GS.clay}>Files</Text>
+          {files.length === 0 && <Text color={GS.subtle}>  no files</Text>}
+          {files.slice(0, room).map(f =>
+            f.isDir ? <Text bold color={GS.mist}>  {f.name}/</Text> : <Text color={GS.subtle}>  {f.name}</Text>,
+          )}
+        </Box>
+
+        <Box marginTop={1}>
+          <Text color={GS.subtle}>/ghostship-overview refreshes this</Text>
+        </Box>
+      </Box>
+    )
+  })
+
   on('ui.render', { component: 'AbovePrompt' }, async ($, e, next) => {
     const drawn = await next(e)
     // Mods are a terminal (SSH) convenience only. On mobile/desktop app surfaces they never render —

@@ -21,11 +21,25 @@ State is plain markdown under `docs/ghostship/`, so any fresh session resumes by
 
 Then in any project: `/ghostship new` (or `adopt`, `resume`).
 
+## Views
+
+| You type | What you see |
+|---|---|
+| `/ghostship` | The **voyage** pane: stage, progress, board, in-flight task, evidence, spend |
+| `/ghostship-overview` | The **app overview** pane: what the app is, what is built, what is being built, what is planned, and its files |
+| `/ghostship-band` | Show or hide the stage band above the prompt |
+| `/ghostship-update` | Check for and install the latest version |
+
+The overview reads the project's own files (`package.json` or `README.md`, `docs/ghostship/BOARD.md`, the top-level folder), so it works in any project that has them.
+
 ## Layout
 
-- `.claude-plugin/plugin.json` — plugin manifest
-- `.claude-plugin/marketplace.json` — makes the repo its own marketplace
+- `.claude-plugin/` — plugin and marketplace manifests
 - `skills/ghostship/SKILL.md` — the orchestrator skill
-- `hooks/` — mods (added next): live stage band, process guards
+- `hooks/register.tsx` — the one hooks module: panes, band, commands, update check
+- `hooks/state.ts`, `hooks/overview.ts` — pure helpers (parsing, grouping), no engine needed
+- `hooks/band.tsx`, `hooks/lib.ts` — the band's animated client and the palette
+- `types/index.d.ts` — the `$.state` contract
+- `tests/` — `claude plugin test` suites
 
-Status: **0.1.0**, in active development. The earlier engine edition lives at github.com/shekharcharles/ghostship.
+Status: **0.2.0**, in active development. The earlier engine edition lives at github.com/shekharcharles/ghostship.
