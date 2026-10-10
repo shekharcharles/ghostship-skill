@@ -42,7 +42,7 @@ The pane adds three cards:
 - **ROUTING** — which model each subagent role runs on (Haiku / Sonnet / Opus per role).
 - **SPEND** — the project, this session, the main thread against the subagents, and the split by model.
 
-**Smart routing.** The main thread (the orchestrator: interview, spec, plan, the STOP decisions) stays on the session's model, Opus, whose cache lasts the session. Each subagent is put on its role's model as it starts: searches and reading (`Explore`) on **Haiku**, **builders** and **judges** on **Sonnet**. The pane's **ROUTING** card changes any role's model, kept across sessions. Routing per subagent, not per step, matters: each model keeps its own cache, so switching the main thread to a cheaper model mid-conversation makes that model write the whole conversation again, which costs more than it saves.
+**Smart routing.** The main thread (the orchestrator: interview, spec, plan, the STOP decisions) stays on the session's model, Opus, whose cache lasts the session. Each subagent is put on its role's model as it starts: searches and reading (`Explore`) on **Haiku**, **builders** and **judges** on **Sonnet**. A judge of a task that already failed once (an earlier judge of it this session, or a FAIL for it in `EVIDENCE.md`) runs on **Opus**: the retry is the hard case. The pane's **ROUTING** card changes any role's model, kept across sessions. Routing per subagent, not per step, matters: each model keeps its own cache, so switching the main thread to a cheaper model mid-conversation makes that model write the whole conversation again, which costs more than it saves.
 
 Prices are list prices (after [cache-tax](https://github.com/karanb192/cache-tax), MIT); the session total is Claude Code's own when it reports one. The cache lifetime defaults to 1h (a Claude subscription); set `5m` in the plugin's settings on an API key, and the engine's own figure wins whenever a model switch reports it. A resumed session that comes back cold says what its first message will cost.
 
@@ -62,4 +62,4 @@ The pane reads the project's own files (`package.json` or `README.md`, `docs/gho
 - `types/index.d.ts` — the `$.state` contract
 - `tests/` — `claude plugin test` suites
 
-Status: **0.6.0**, in active development. The earlier engine edition lives at github.com/shekharcharles/ghostship.
+Status: **0.6.1**, in active development. The earlier engine edition lives at github.com/shekharcharles/ghostship.

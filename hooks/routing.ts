@@ -31,3 +31,17 @@ export function cleanRouting(v: unknown): Routing {
   const pick = (r: Role): Tier => ((TIERS as string[]).includes(o[r] as string) ? (o[r] as Tier) : DEFAULT_ROUTING[r])
   return { grunt: pick('grunt'), builder: pick('builder'), judge: pick('judge') }
 }
+
+/** The task an agent works on, from its name or description: `judge T005` → T005. */
+export function taskOf(label: string): string | null {
+  return label.match(/\bT\d{3,}\b/)?.[0] ?? null
+}
+
+/**
+ * Whether a judge goes to Opus: its task already failed once, so this is a retry. Seen two ways: an earlier judge of the same
+ * task in this session (a task is judged again only after a builder had to redo it), or a FAIL for it in EVIDENCE.md.
+ */
+export function judgeRetry(task: string | null, earlierAgentNames: readonly string[], failedTasks: readonly string[]): boolean {
+  if (!task) return false
+  return failedTasks.includes(task) || earlierAgentNames.some(n => /judge/i.test(n) && taskOf(n) === task)
+}

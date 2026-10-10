@@ -1,6 +1,6 @@
 import { describe, expect, test } from "claude-code/testing";
 
-import { DEFAULT_ROUTING, cleanRouting, modelFor, roleOf } from "../hooks/routing.ts";
+import { DEFAULT_ROUTING, cleanRouting, judgeRetry, modelFor, roleOf, taskOf } from "../hooks/routing.ts";
 
 describe("which model each subagent runs on", () => {
   test("search and reading go to the cheapest model, building and judging to the middle one", () => {
@@ -17,5 +17,15 @@ describe("which model each subagent runs on", () => {
     expect(cleanRouting({ grunt: "sonnet", builder: "opus", judge: "opus" })).toEqual({ grunt: "sonnet", builder: "opus", judge: "opus" });
     expect(cleanRouting({ grunt: "gpt" })).toEqual(DEFAULT_ROUTING);
     expect(cleanRouting(undefined)).toEqual(DEFAULT_ROUTING);
+  });
+
+  test("a judge whose task already failed once is a retry, and goes to Opus", () => {
+    expect(taskOf("judge T005")).toBe("T005");
+    expect(taskOf("search the band")).toBe(null);
+    expect(judgeRetry("T005", [], [])).toBe(false);
+    expect(judgeRetry("T005", ["builder T005", "judge T004"], [])).toBe(false);
+    expect(judgeRetry("T005", ["builder T005", "judge T005", "builder T005"], [])).toBe(true);
+    expect(judgeRetry("T005", [], ["T005"])).toBe(true);
+    expect(judgeRetry(null, ["judge T005"], ["T005"])).toBe(false);
   });
 });
