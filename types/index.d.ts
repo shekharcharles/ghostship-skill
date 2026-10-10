@@ -22,6 +22,7 @@ declare module 'claude-code' {
       evidence: { task: string; verdict: 'pass' | 'fail' | 'parked'; at: number }[]
       filesOpen: boolean       // the pane's FILES section is expanded
       panelOpen: boolean       // the control panel above the prompt is open (◆ Ghostship in the footer)
+      lastReplyAt: number      // when the main model last answered ($.clock.now() ms; 0 before any): the cache countdown's start
       boardOpen: boolean       // the voyage pane's BOARD section is expanded
       recorderOpen: boolean    // the voyage pane's RECORDER section is expanded
     }

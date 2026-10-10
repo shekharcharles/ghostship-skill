@@ -125,3 +125,16 @@ export function setStateField(text: string, key: string, value: string): string 
   }
   return lines.join('\n')
 }
+
+/**
+ * Whether Ghostship is building unattended: past STOP 1 (plan, tasks or build) with no stop waiting on the owner.
+ * In this window the owner is never asked; anything that needs them is parked for STOP 2.
+ */
+export function isUnattended(st: GhostshipState | null): boolean {
+  return !!st && (st.stage === 'plan' || st.stage === 'tasks' || st.stage === 'build') && !st.awaiting
+}
+
+/** The tasks still to finish: not done, merged or parked. */
+export function remainingTasks(tasks: Task[]): Task[] {
+  return tasks.filter(t => !['done', 'merged', 'parked'].includes(t.status))
+}

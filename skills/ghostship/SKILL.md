@@ -33,12 +33,15 @@ interview ─▶ PRD.md ─▶ spec.md ─(STOP 1)─▶ plan.md ─▶ tasks/T#
 6. **Build (one task at a time, in the chosen `mode:`, unattended).** For each ready task: dispatch a **fresh builder subagent** (Agent tool) under the Builder Contract (Think → Write → Test-for-real → Review); when it reports green, dispatch a **fresh judge subagent** under the Judge Contract. On PASS, mark the task done in `BOARD.md`, append its line to `EVIDENCE.md`, commit, next task. On FAIL, hand the judge's reasons to a new builder for the same task; after 3 failed attempts, **park it** (status `parked` in `BOARD.md`, a one-line reason in `STATE.md`) and move to the next task. When a task is parked, also park every task that depends on it, reason `blocked by T###`, so nothing is built on a missing piece. Never build two tasks at once. **Ask the owner nothing here — no questions, no batches of decisions, ever.**
    - **A task that can't be done is parked, not escalated.** If a task needs to touch a file outside its stated paths, depends on a decision, or keeps failing the same way, that is a *parking* condition, not a reason to stop and ask. Park it with the reason and keep building the rest. The owner sees every parked task and its reason at STOP 2 and decides then.
    - If a whole class of tasks is wrong (e.g. the plan fenced several tasks off from the code they must change), fix it yourself by re-cutting those tasks from `spec.md`/`plan.md` and continuing — still without asking. Correcting your own plan is build work, not an owner decision.
-   - The one hard rule: **between STOP 1 and STOP 2 the owner is never prompted.** If you are about to ask a question during the build, you have hit a parking condition instead — park and continue.
+   - **A check that is wrong is a parking condition too.** If an acceptance criterion turns out to be unprovable, contradictory, or testable only by faking (e.g. its test demands two things that can only both be true in a decoy), do not ask. Park the task(s) that depend on it with the reason `A# unprovable as written: <why>`, and add the decision to `DECISIONS.md` with a proposed rewrite. Never spend a task's last attempt on a check you already know cannot pass honestly.
+   - **A task out of retries is parked, not escalated.** Never ask for more retries, a waiver or a grant mid-build: park it and add it to `DECISIONS.md` with what would unblock it.
+   - The one hard rule: **between STOP 1 and STOP 2 the owner is never prompted, and the build does not stop while a task is ready.** If you are about to ask a question during the build, you have hit a parking condition instead — park, write it to `DECISIONS.md`, and continue with the next ready task. The Ghostship mod holds you to this: it refuses `AskUserQuestion` between STOP 1 and STOP 2, and sends a turn that tries to end with tasks left back to the next one.
 7. **Release → STOP 2.** When every task is done or parked, run the full suite and every acceptance criterion's check yourself, then write the release summary:
    - **Traceability:** one row per criterion — `A#` · the task(s) that cover it · its check · the result (`pass`, or `parked` with the reason). Every criterion appears; none is silently missing.
    - **Shipped / parked:** what works now, and each parked task with its reason.
    - **Release gate:** full suite green, every criterion `pass` or `parked`, README/docs describe what shipped. Fix what you can before asking.
-   Then ask the owner to approve. On approval, tag it and report.
+   - **Decisions:** every item in `DECISIONS.md`, each with its options and your recommendation.
+   Then ask the owner, in one go: approve the release, and answer each decision — one `AskUserQuestion` question per decision (up to 4 per call; several calls if there are more), the recommended option first and marked "(Recommended)". With `autonomy: auto`, apply the recommended options yourself and report them instead of asking. A decision that rewrites a criterion goes through `/ghostship change` (re-approve that criterion, rebuild only its tasks) before the release is tagged. On approval, tag it and report.
 
 ## State lives in files (no hidden state)
 
@@ -79,6 +82,18 @@ Status is one of `done | building | judging | todo | parked | merged`. Update a 
 ```
 T005 · PASS   · npm test -- done.test.mjs → exit 0 · suite 24/24 · 2026-10-10
 T008 · PARKED · blocked by T007
+```
+
+**`DECISIONS.md`** — the questions for STOP 2, collected during the build instead of asked. One section per decision:
+
+```
+## D1 · C12 cannot be passed honestly
+Why: its test needs Chromium launched by `docker run --cap-drop ALL` AND the screenshot from the host process; only a decoy satisfies both.
+Blocks: T012 (parked)
+Options:
+- Rewrite C12 to the real design: the engagement image carries Chromium, its container drops all capabilities, a screenshot is captured — recommended
+- Leave C12 as written: T012 fails honestly and stays parked
+- Drop C12 and T012
 ```
 
 Other files: `PRD.md` · `spec.md` · `plan.md` (the pipeline artifacts) and `tasks/T###.md` (one per task). Update all of these **before** moving on — they are your crash-safety and let `resume` pick up exactly where you left off.
@@ -133,7 +148,7 @@ Hold every subagent to a contract. **Reject and redeploy any subagent that repor
 ## Never
 
 - Never skip or reorder the pipeline, and never start building before STOP 1.
-- **Never ask the owner anything between STOP 1 and STOP 2.** Record blockers and keep going.
+- **Never ask the owner anything between STOP 1 and STOP 2, and never end the turn there while a task is ready.** Park blockers, write them to `DECISIONS.md`, and keep going.
 - Never approve a stop for the owner — the stops are theirs; you only ask and record the answer.
 - Never edit the approved acceptance criteria except through `/ghostship change`.
 - Never let a builder judge its own work — the judge is always a separate, fresh subagent.

@@ -2,7 +2,7 @@ import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register } from 'claude-code'
 
 import {
-  VOYAGE, STOP_AFTER, parseState, parseBoard, parseEvidence, setStateField, voyageOf, curIndexOf,
+  VOYAGE, STOP_AFTER, parseState, parseBoard, parseEvidence, setStateField, isUnattended, remainingTasks, voyageOf, curIndexOf,
   progressBar, statusMark, cmpVersion, type GhostshipState, type Task,
 } from './state.ts'
 import type { VoyageSnap } from '../types'
@@ -10,6 +10,7 @@ import { bandTree } from './band.tsx'
 import { GS, clock, fmtTokens } from './lib.ts'
 import { appEntries, appIdentity } from './overview.ts'
 import { fitAgents, roleOf, stepOf, type Running } from './agents.ts'
+import { cacheLeft, countdown, limitsOf, rowParts, shouldWarn, ttlMs } from './usage.ts'
 
 // Ghostship's two live surfaces: the band above the prompt (drawn by the hooks module on the terminal, one SVG on the
 // desktop) and the voyage pane docked right. Both only reflect the skill's own files (docs/ghostship/STATE.md
@@ -28,6 +29,8 @@ const evidenceAtom = atom({ plugin: 'ghostship', key: 'evidence' } as const, [])
 const filesOpenAtom = atom({ plugin: 'ghostship', key: 'filesOpen' } as const, false)
 // The control panel above the prompt, opened from the ◆ Ghostship button in the prompt's footer.
 const panelOpenAtom = atom({ plugin: 'ghostship', key: 'panelOpen' } as const, false)
+// When the main model last answered: the prompt cache's countdown runs from it. In $.state, so a reload keeps it.
+const lastReplyAtAtom = atom({ plugin: 'ghostship', key: 'lastReplyAt' } as const, 0)
 
 // What the panel offers: the build modes and autonomy levels the skill knows, and the skill's own slash command.
 const BUILD_MODES = ['tdd', 'verify', 'iterative'] as const
@@ -239,7 +242,70 @@ async function doUpdate($: EngineInterface): Promise<void> {
   }
 }
 
-export const register: Register = on => {
+// ---- the band's usage line: context, the prompt-cache countdown, the 5-hour and weekly limits ----
+// The engine does not report the cache's expiry, so the countdown runs from the main model's last reply: each request
+// restarts the cache's lifetime, which the cacheTtl setting names (5 minutes on most accounts, an hour on some).
+const WARN_LEAD_MS = 60_000
+let contextPct: number | null = null
+let limits: { fiveHour: number | null; week: number | null } = { fiveHour: null, week: null }
+let working = false
+let warnedFor = 0
+
+// Each second: the latest usage figures, the cold-cache warning a minute ahead, and a redraw.
+async function usageTick($: EngineInterface, ttl: number): Promise<void> {
+  try {
+    const u = await $.session.usage()
+    contextPct = u.context.percent ?? null
+    limits = limitsOf(u.rateLimits)
+  } catch { /* no reading yet */ }
+  const last = await read($, lastReplyAtAtom)
+  const left = cacheLeft(await $.clock.now(), last, ttl)
+  if (!working && shouldWarn(left, WARN_LEAD_MS, warnedFor, last)) {
+    warnedFor = last
+    $.ui.toast(`Prompt cache goes cold in ${countdown(left!)}: press ↻ cache in the Ghostship band, or send a message, to keep it warm.`)
+  }
+  $.ui.invalidate('ui.render')
+}
+
+// The band's ↻ cache: re-send the conversation's cached prefix with one tiny question, which restarts its lifetime.
+async function refreshCache($: EngineInterface, ttl: number): Promise<void> {
+  try {
+    const r = await $.model.fork({ prompt: 'Reply with the single word OK.' })
+    if (r.isAnswered) {
+      const now = await $.clock.now()
+      await update($, lastReplyAtAtom, () => now)
+      $.ui.toast(`Prompt cache refreshed: warm for ${countdown(ttl)}.`)
+    } else {
+      $.ui.toast(r.reason === 'nothing-to-fork' ? 'No conversation to keep warm yet.' : `Could not refresh the prompt cache (${r.reason}).`)
+    }
+  } catch (err) {
+    $.ui.toast(`Could not refresh the prompt cache: ${(err as Error).message}`)
+  }
+}
+
+// ---- keeping the build going: between STOP 1 and STOP 2 the owner is never asked, and the turn does not end ----
+// The skill says so; these two hooks hold it to that. A question is refused with the way to park it instead, and a turn
+// that tries to end while tasks remain is sent back to the next one, up to MAX_NUDGES times without progress on disk.
+const MAX_NUDGES = 3
+let nudges = 0
+let lastProgress = ''
+const ASK_REFUSED = 'Ghostship is building unattended (between STOP 1 and STOP 2), so the owner is not asked now. ' +
+  'Park it instead: set the task to parked in BOARD.md, add the question with the options and your recommended answer to ' +
+  'docs/ghostship/DECISIONS.md, and go on with the next ready task. The owner answers every DECISIONS.md item together at STOP 2.'
+
+async function buildStatus($: Fs): Promise<{ unattended: boolean; left: Task[]; progress: string }> {
+  const stateText = await tryRead($, STATE_FILE)
+  const boardText = await tryRead($, BOARD_FILE)
+  return {
+    unattended: isUnattended(stateText ? parseState(stateText) : null),
+    left: remainingTasks(boardText ? parseBoard(boardText) : []),
+    progress: `${stateText}\n${boardText}`,
+  }
+}
+
+export const register: Register = (on, options) => {
+  const ttl = ttlMs(typeof options?.cacheTtl === 'string' ? options.cacheTtl : undefined)
+
   on('session.start', async ($, e, next) => {
     const started = await next(e)
     activeTask = null; activeSince = null; publishedKey = ''; stamps = []; stamped = false
@@ -257,14 +323,52 @@ export const register: Register = on => {
     try { await $.ui.close({ id: 'ghostship-overview' }) } catch { /* none open */ }
     // Live refresh: the snapshot every 1.5 s, and a redraw of the band and panes every second.
     try { $.clock.every(1500, () => { ticks += 1; if (ticks % 6 === 1) void readBranch($).catch(() => undefined); void publish($).catch(() => undefined) }) } catch { /* no live refresh */ }
-    try { $.clock.every(1000, () => $.ui.invalidate('ui.render')) } catch { /* no redraw timer */ }
+    try { $.clock.every(1000, () => void usageTick($, ttl).catch(() => undefined)) } catch { /* no redraw timer */ }
     // Check GitHub for a newer version, in the background; if there is one, a one-click Update row appears.
     void checkUpdate($).then(async () => { const u = await read($, updateAtom); if (u) $.ui.toast(`Ghostship ${u.latest} is available — click Update above the prompt, or /ghostship-update`) }).catch(() => undefined)
     return started
   })
 
   on('prompt.submit', async ($, e, next) => { await publish($); return next(e) }).catch(($, e, next) => next(e))
-  on('turn.complete', async ($, e, next) => { await publish($); return next(e) }).catch(($, e, next) => next(e))
+  on('turn.start', async ($, e, next) => { working = true; return next(e) }).catch(($, e, next) => next(e))
+  on('turn.complete', async ($, e, next) => {
+    working = false
+    const now = await $.clock.now()
+    await update($, lastReplyAtAtom, () => now)
+    await publish($)
+    return next(e)
+  }).catch(($, e, next) => next(e))
+  // Every reply of the main model restarts the prompt cache's lifetime; subagents keep caches of their own.
+  on('turn.step', async function* ($, e, next) {
+    const result = yield* next(e)
+    if (e.agentId === undefined) {
+      const now = await $.clock.now()
+      await update($, lastReplyAtAtom, () => now)
+    }
+    return result
+  })
+
+  on('tool.call', { tool: 'AskUserQuestion' }, async ($, e, next) => {
+    if (!(await buildStatus($)).unattended) return next(e)
+    return { deny: ASK_REFUSED }
+  }).catch(($, e, next) => next(e))
+
+  on('classic.Stop', async ($, e, next) => {
+    const b = await buildStatus($)
+    if (!b.unattended || !b.left.length) { nudges = 0; return next(e) }
+    if (b.progress !== lastProgress) { lastProgress = b.progress; nudges = 0 }
+    if (nudges >= MAX_NUDGES) {
+      $.ui.toast(`Ghostship let the turn end: ${MAX_NUDGES} nudges brought no progress on the board. Check the build, then /ghostship:ghostship resume.`)
+      return next(e)
+    }
+    nudges += 1
+    const first = b.left[0]!
+    return {
+      block: `Ghostship's build is not finished: ${b.left.length} task(s) remain, next ${first.id} (${first.label}). ` +
+        'Do not stop and do not ask the owner. Continue with the next ready task now; anything you cannot resolve is parked ' +
+        'with its reason in BOARD.md and DECISIONS.md for STOP 2.',
+    }
+  }).catch(($, e, next) => next(e))
   on('session.measure', async ($, e, next) => { const r = await next(e); try { await update($, spendAtom, () => toSpend(e as any)) } catch { /* ignore */ } return r }).catch(($, e, next) => next(e))
 
   // ---- subagent rows: the builder, the judge and any other subagent, each with its current step ----
@@ -451,6 +555,26 @@ export const register: Register = on => {
         )
       const rows: unknown[] = [<Box key="gs-head" flexDirection="row" justifyContent="space-between">{head}{hide}</Box>]
       let room = budget - used - (bordered ? 3 : 1)
+
+      // The usage line: context, the cache countdown with ↻ cache to refresh it, the 5-hour and weekly limits.
+      if (room >= 1) {
+        const parts = rowParts({
+          contextPct, working, leadMs: WARN_LEAD_MS, fiveHour: limits.fiveHour, week: limits.week,
+          cacheLeftMs: cacheLeft(nowMs, await read($, lastReplyAtAtom), ttl),
+        })
+        rows.push(
+          <Box key="gs-usage" flexDirection="row" justifyContent="space-between" gap={1}>
+            <Text wrap="truncate-end">
+              {parts.flatMap((p, i) => [
+                i ? <Text key={`us${i}`} dimColor>{'  ·  '}</Text> : null,
+                <Text key={`up${i}`} {...(p.tone === 'dim' ? { dimColor: true } : { color: p.tone === 'warn' ? 'warning' : 'error' })}>{p.text}</Text>,
+              ])}
+            </Text>
+            <Box flexShrink={0}><Button key="gs-cache" label=" ↻ cache " plain dimColor onPress={() => void refreshCache($, ttl)} /></Box>
+          </Box>,
+        )
+        room -= 1
+      }
 
       // A STOP waiting on the owner stays until it is answered; otherwise a verdict shows for 20 seconds after it lands.
       if (snap && inProject && room >= 1) {

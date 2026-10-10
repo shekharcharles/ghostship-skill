@@ -33,6 +33,12 @@ Then in any project: `/ghostship new` (or `adopt`, `resume`).
 
 The pane opens when you ask: `/ghostship`, or **Open** in the control panel. Its `–` minimizes it to the `◆ Ghostship` button; the panel opens it again.
 
+The band's second line is your usage: context fill, the prompt-cache countdown, and how much of the 5-hour and weekly limits is used. **↻ cache** at its end keeps the cache warm (one tiny request over the cached conversation), and a toast warns a minute before it goes cold. The countdown runs from the last reply; set the cache lifetime (`5m` or `1h`) in the plugin's settings.
+
+## Unattended between the stops
+
+Between STOP 1 and STOP 2 nothing waits on you. The skill parks anything that needs you (a check that cannot pass honestly, a task out of retries) and writes it to `docs/ghostship/DECISIONS.md` with a recommended answer; STOP 2 asks them all at once. The mod enforces it: `AskUserQuestion` is refused during plan, tasks and build, and a turn that tries to end while tasks remain is sent back to the next one (three times at most without progress on the board, so it can never loop forever).
+
 The pane reads the project's own files (`package.json` or `README.md`, `docs/ghostship/STATE.md`, `BOARD.md`, `EVIDENCE.md`, the top-level folder), so it shows something useful in any project.
 
 ## Layout
@@ -45,4 +51,4 @@ The pane reads the project's own files (`package.json` or `README.md`, `docs/gho
 - `types/index.d.ts` — the `$.state` contract
 - `tests/` — `claude plugin test` suites
 
-Status: **0.4.10**, in active development. The earlier engine edition lives at github.com/shekharcharles/ghostship.
+Status: **0.5.0**, in active development. The earlier engine edition lives at github.com/shekharcharles/ghostship.

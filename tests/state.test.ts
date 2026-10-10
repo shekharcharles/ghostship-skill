@@ -1,5 +1,5 @@
 import { test, expect } from "claude-code/testing";
-import { parseState, parseBoard, parseEvidence, setStateField, progressBar, statusMark, voyageOf as parseVoyage, cmpVersion } from "../hooks/state";
+import { parseState, parseBoard, parseEvidence, setStateField, isUnattended, remainingTasks, progressBar, statusMark, voyageOf as parseVoyage, cmpVersion } from "../hooks/state";
 
 test("parseState reads stage, task, autonomy, phase and the in-flight fields", () => {
   const s = parseState(`autonomy: auto\nstage: build\nphase: 2/3\nactive task: T005\njudge: verifying\nred: done.test.mjs\ngreen: suite 24/24\n`);
@@ -86,4 +86,18 @@ test("parseState reads mode and autonomy as one word, ignoring a trailing commen
   expect(st.mode).toBe("iterative");
   expect(st.autonomy).toBe("auto");
   expect(parseState("stage: plan\n").mode).toBe(null);
+});
+
+test("isUnattended: past STOP 1 and nothing waiting on the owner", () => {
+  expect(isUnattended(parseState("stage: build\n"))).toBe(true);
+  expect(isUnattended(parseState("stage: plan\n"))).toBe(true);
+  expect(isUnattended(parseState("stage: build\nawaiting: STOP 2 — approve the release\n"))).toBe(false);
+  expect(isUnattended(parseState("stage: spec\n"))).toBe(false);
+  expect(isUnattended(parseState("stage: release\n"))).toBe(false);
+  expect(isUnattended(null)).toBe(false);
+});
+
+test("remainingTasks leaves out done, merged and parked", () => {
+  const b = parseBoard("| T001 | 1 | done | a |\n| T002 | 1 | todo | b |\n| T003 | 2 | judging | c |\n| T004 | 2 | parked | d |\n| T005 | 2 | merged | e |");
+  expect(remainingTasks(b).map(t => t.id)).toEqual(["T002", "T003"]);
 });
