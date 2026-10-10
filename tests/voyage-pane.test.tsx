@@ -24,6 +24,7 @@ function world(on: any, state: string | null, board: string | null = null) {
   on("fs.read", ($: any, e: any) => {
     if (e.path.endsWith("STATE.md") && state !== null) return { value: state };
     if (e.path.endsWith("BOARD.md") && board !== null) return { value: board };
+    if (e.path.endsWith("plugin.json")) return { value: JSON.stringify({ version: "9.9.9" }) };
     return { deny: `ENOENT ${e.path}` };
   });
   on("fs.list", () => ({ value: [] }));
@@ -42,6 +43,13 @@ describe("the voyage pane body", () => {
     await $.session.start({ surface: "terminal", isInteractive: true, cwd: "/work" });
     const ui = await $.ui.mount({ plugin: "ghostship", surface: "terminal", ...PANE });
     await shows(ui, "BUILD");
+  });
+
+  test("the pane header shows the version loaded", { options: { autoOpen: false } }, async ($, on) => {
+    world(on, STATE);
+    await $.session.start({ surface: "terminal", isInteractive: true, cwd: "/work" });
+    const ui = await $.ui.mount({ plugin: "ghostship", surface: "terminal", ...PANE });
+    await shows(ui, "GHOSTSHIP v9.9.9");
   });
 
   test("the board section opens with a disclosure triangle", { options: { autoOpen: false } }, async ($, on) => {

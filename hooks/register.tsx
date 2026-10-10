@@ -46,8 +46,11 @@ let prevStatus: Record<string, string> = {}
 let installedVersion = ''
 
 // The plugin's own installed version, from its manifest — shown in the band and pane.
+async function versionOf($: EngineInterface): Promise<string> {
+  try { return (JSON.parse(await $.fs.read(`${$.plugin.root}/.claude-plugin/plugin.json`)).version as string) || '' } catch { return '' }
+}
 async function readVersion($: EngineInterface): Promise<void> {
-  try { installedVersion = (JSON.parse(await $.fs.read(`${$.plugin.root}/.claude-plugin/plugin.json`)).version as string) || '' } catch { /* unknown version */ }
+  installedVersion = await versionOf($)
 }
 
 // Live local-model spend for the build: tokens, cost and context fill, from the session's own usage.
@@ -348,9 +351,12 @@ export const register: Register = on => {
     const ui = $.ui.resolve(e)
     const { Box, Text, Button } = ui
     const folded = await read($, foldedAtom)
+    // Read on every draw, so the pane shows the version actually loaded — a hot reload changes it at once.
+    const version = await versionOf($)
+    const label = version ? `⛴ GHOSTSHIP v${version}` : '⛴ GHOSTSHIP'
     const controls = paneControls(ui, $, PANE, folded, () => void update($, foldedAtom, () => !folded))
     if (folded) {
-      return <Box paddingX={1} justifyContent="space-between"><Text bold color={GS.clay}>◆ Ghostship</Text>{controls}</Box>
+      return <Box paddingX={1} justifyContent="space-between"><Text bold color={GS.clay}>{label}</Text>{controls}</Box>
     }
     const spend = await read($, spendAtom)
     const evidence = await read($, evidenceAtom)
@@ -361,6 +367,7 @@ export const register: Register = on => {
       return (
         <Box flexDirection="column" paddingX={1} gap={1}>
           {controls}
+          <Text bold color={GS.clay}>{label}</Text>
           <Text bold color={GS.clay}>No Ghostship project here yet.</Text>
           <Text color={GS.mist}>Run /ghostship new to start one, or /ghostship-overview to see this app.</Text>
         </Box>
@@ -419,7 +426,7 @@ export const register: Register = on => {
       <Box flexDirection="column" gap={1} paddingX={1} borderStyle="round" borderColor={border}>
         {controls}
         <Box justifyContent="space-between">
-          <Text color="claude" bold>{installedVersion ? `⛴ GHOSTSHIP v${installedVersion}` : '⛴ GHOSTSHIP'}</Text>
+          <Text color="claude" bold>{label}</Text>
           <Text color={st.awaiting ? 'warning' : 'claude'}>
             {st.awaiting ? '⏸ YOUR MOVE' : st.stage === 'done' ? '✓ RELEASED' : `● ${(st.stage || '').toUpperCase()}`}
           </Text>
