@@ -233,6 +233,8 @@ export const register: Register = on => {
     // The band above the prompt is the only live line; clear any status line an older version pinned.
     try { $.ui.status(undefined) } catch { /* no status line */ }
     try { await publish($) } catch { /* the render falls back to a direct read */ }
+    // Versions before 0.4.7 opened a second pane, the Overview; it is folded into the one pane now, so close any left open.
+    try { await $.ui.close({ id: 'ghostship-overview' }) } catch { /* none open */ }
     // The pane opens where it was left: open on the right, docked as a chip in the band, or closed.
     try { if (e.surface === 'terminal' && (await read($, paneAtom)) === 'open') void $.ui.open({ id: PANE, title: 'Ghostship' }) } catch { /* no pane */ }
     // Live refresh: the snapshot every 1.5 s, and a redraw of the band and panes every second.
