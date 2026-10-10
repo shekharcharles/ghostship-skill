@@ -7,8 +7,9 @@ import {
 } from './state.ts'
 import type { VoyageSnap } from '../types'
 import { bandTree, type BandProps } from './band.tsx'
-import { GS, fmtTokens } from './lib.ts'
+import { GS, clock, fmtTokens } from './lib.ts'
 import { appEntries, appIdentity, featuresOf } from './overview.ts'
+import { roleOf, stepOf, type Running } from './agents.ts'
 
 // Ghostship's two live surfaces: the band above the prompt (drawn by the hooks module on the terminal, one SVG on the
 // desktop) and the voyage pane docked right. Both only reflect the skill's own files (docs/ghostship/STATE.md
@@ -46,6 +47,10 @@ let prevStatus: Record<string, string> = {}
 let installedVersion = ''
 let branch = ''
 let ticks = 0
+// Subagents at work, by agent id: from their spawn to their stop.
+// shortcut: an agent that never reports its stop keeps its row until the session restarts; sweep by age if that shows up.
+const running = new Map<string, Running>()
+const MAX_AGENT_ROWS = 4
 
 // The plugin's own installed version, from its manifest — shown in the band and pane.
 async function versionOf($: EngineInterface): Promise<string> {
@@ -227,6 +232,24 @@ export const register: Register = on => {
   on('turn.complete', async ($, e, next) => { await refreshStatus($); await publish($); return next(e) }).catch(($, e, next) => next(e))
   on('session.measure', async ($, e, next) => { const r = await next(e); try { await update($, spendAtom, () => toSpend(e as any)) } catch { /* ignore */ } return r }).catch(($, e, next) => next(e))
 
+  // ---- subagent rows: the builder, the judge and any other subagent, each with its current step ----
+  on('agent.spawn', async ($, e, next) => {
+    const result = await next(e)
+    if (result.agentId !== undefined) running.set(result.agentId, { name: e.description || e.name || 'Agent', label: 'Getting started', startMs: await $.clock.now() })
+    return result
+  }).catch(($, e, next) => next(e))
+
+  on('tool.call', async ($, e, next) => {
+    const a = e.agentId !== undefined ? running.get(e.agentId) : undefined
+    if (a) a.label = stepOf(e.tool, e as unknown as Record<string, unknown>)
+    return next(e)
+  }).catch(($, e, next) => next(e))
+
+  on('classic.SubagentStop', async ($, e, next) => {
+    running.delete(e.agent_id)
+    return next(e)
+  }).catch(($, e, next) => next(e))
+
   on('command.run', { command: 'ghostship' }, async $ => {
     await $.ui.open({ id: PANE, title: 'Ghostship' })
     return { text: 'Ghostship voyage pane opened.' }
@@ -380,8 +403,33 @@ export const register: Register = on => {
       }
     }
 
-    if (!updateRow && !band && !waitRow) return drawn
-    return <Box flexDirection="column">{drawn}{updateRow}{band}{waitRow}</Box>
+    // One row per subagent at work: ◆ name › current step   elapsed. Fixed parts never shrink; the step truncates.
+    let agentRows: unknown = null
+    if (running.size) {
+      const nowMs = await $.clock.now()
+      const all = [...running.values()]
+      const shown = all.slice(-MAX_AGENT_ROWS)
+      const more = all.length - shown.length
+      agentRows = (
+        <Box key="gs-agents" flexDirection="column">
+          {shown.map((a, i) => {
+            const role = roleOf(a.name)
+            const color = role === 'judge' ? GS.amber : role === 'builder' ? GS.clay : GS.mist
+            return (
+              <Box key={`gs-ag${i}`} flexDirection="row">
+                <Box flexShrink={0}><Text color={color}>{'◆ '}</Text><Text bold>{a.name.slice(0, 40)}</Text></Box>
+                <Text wrap="truncate-end">{` › ${a.label}`}</Text>
+                <Box flexShrink={0}><Text dimColor>{`  ${clock(nowMs - a.startMs)}`}</Text></Box>
+              </Box>
+            )
+          })}
+          {more > 0 ? <Text dimColor>{`… ${more} more`}</Text> : null}
+        </Box>
+      )
+    }
+
+    if (!updateRow && !band && !waitRow && !agentRows) return drawn
+    return <Box flexDirection="column">{drawn}{updateRow}{band}{waitRow}{agentRows}</Box>
     } catch (err) {
       const msg = (err as Error).message
       $.ui.log(`ghostship band: ${msg}`, { to: "debug" })
