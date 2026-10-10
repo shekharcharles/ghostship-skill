@@ -103,3 +103,13 @@ export function fmtTokens(n: number): string {
   if (n >= 1_000) return `${+(n / 1_000).toFixed(1)}k`
   return String(n | 0)
 }
+
+/** The console palette of ruflo's console: amber headings and card edges, pink title accents, cyan, yellow for running, grey for hints. */
+export const RUFLO = {
+  amber: '#ffaf00',
+  pink: '#ff005f',
+  pinkLit: '#ff87d7',
+  cyan: '#87d7d7',
+  yellow: '#ffff87',
+  grey: '#949494',
+} as const

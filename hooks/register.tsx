@@ -13,6 +13,7 @@ import { fitAgents, roleOf, type Running } from './agents.ts'
 import { activityOf, partialArgsOf, thoughtOf, wordsAdded } from './activity.ts'
 import { DELETE_REFUSED, riskyDelete } from './guard.ts'
 import { WORDMARK, WORDMARK_WIDTH } from './art.ts'
+import { RUFLO } from './lib.ts'
 import {
   addStep, cacheLeft, coldWriteUsd, countdown, endAgent, fmtK, hitRate, keepWarmDue, keepWarmLead, limitsOf, splitSpend, modelLabel, projectTotal,
   refreshVerdict, rowParts, shouldWarn, span, ttlMs, usageUsd,
@@ -1088,13 +1089,17 @@ export const register: Register = on => {
     const cols = e.props.bodyColumns ?? 40
     const cards = cols >= 44
     const inner = Math.max(10, cols - (cards ? 4 : 2))
-    const section = (key: string, edge: string, body: any) => cards
-      ? <Box key={key} flexDirection="column" borderStyle="round" borderColor={edge} paddingX={1}>{body}</Box>
+    // Cards take ruflo's amber edge unless a state colours them (waiting, released, building).
+    const section = (key: string, edge0: string, body: any) => cards
+      ? <Box key={key} flexDirection="column" borderStyle="round" borderColor={edge0 === 'subtle' ? RUFLO.amber : edge0} paddingX={1}>{body}</Box>
       : <Box key={key} flexDirection="column" paddingX={1}>{body}</Box>
+    // A card heading as ruflo draws it: amber block glyphs, the label in bold amber, and a rule of ═ to the right.
     const head = (label: string, right?: string) => (
-      <Box key={`h-${label}`} justifyContent="space-between">
-        <Text color="subtle">{label}</Text>
-        {right ? <Text color="subtle">{right}</Text> : null}
+      <Box key={`h-${label}`} flexDirection="row" gap={1}>
+        <Text color={RUFLO.amber} bold>▐█▌</Text>
+        <Text color={RUFLO.amber} bold>{label}</Text>
+        <Box flexGrow={1}><Text color={RUFLO.amber} wrap="truncate-end">{'═'.repeat(200)}</Text></Box>
+        {right ? <Text color={RUFLO.grey}>{right}</Text> : null}
       </Box>
     )
     // A section header that folds: ▾ open, ▸ folded.
