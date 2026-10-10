@@ -60,6 +60,8 @@ const PLUGIN = 'ghostship'
 const RAW_MANIFEST = `https://raw.githubusercontent.com/${REPO}/${BRANCH}/.claude-plugin/plugin.json`
 
 // Module variables reset on reload; the elapsed clock simply restarts, which is fine.
+// What the main thread (this session) is doing right now, in words; cleared when the turn ends.
+let mainStep: string | null = null
 let activeTask: string | null = null
 let activeSince: number | null = null
 let publishedKey = ''
@@ -421,6 +423,7 @@ export const register: Register = (on, options) => {
   on('turn.start', async ($, e, next) => { working = true; return next(e) }).catch(($, e, next) => next(e))
   on('turn.complete', async ($, e, next) => {
     working = false
+    mainStep = null
     const now = await $.clock.now()
     await update($, lastReplyAtAtom, () => now)
     await publish($)
@@ -525,8 +528,8 @@ export const register: Register = (on, options) => {
   }).catch(($, e, next) => next(e))
 
   on('tool.call', async ($, e, next) => {
-    const a = e.agentId !== undefined ? running.get(e.agentId) : undefined
-    if (a) a.label = stepOf(e.tool, e as unknown as Record<string, unknown>)
+    const step = stepOf(e.tool, e as unknown as Record<string, unknown>)
+    if (e.agentId !== undefined) { const a = running.get(e.agentId); if (a) a.label = step } else mainStep = step
     return next(e)
   }).catch(($, e, next) => next(e))
 
@@ -890,15 +893,21 @@ export const register: Register = (on, options) => {
     }) : []
 
     // The board, grouped by what the tasks have become: built, being built, planned, parked.
-    const group = (key: string, title: string, glyph: string, color: string, tasks: Task[]) => tasks.length ? [
+    // Each task carries its own mark: ✓ done, a spinner while it is being built, ○ planned, ⚠ parked.
+    const group = (key: string, title: string, glyph: string, color: string, tasks: Task[], spin = false) => tasks.length ? [
       <Text key={`${key}-h`} bold color={color}>{`${glyph} ${title}  ${tasks.length}`}</Text>,
-      ...capped(key, tasks.map(t => <Text key={`${key}-${t.id}`} wrap="truncate-end">{`  ${t.id}  `}<Text color="subtle">{t.label}</Text></Text>)),
+      ...capped(key, tasks.map((t, i) => (
+        <Box key={`${key}-${t.id}`} flexDirection="row">
+          <Box flexShrink={0}><Text color={color} bold={spin}>{`${spin ? SPIN[(Math.floor(nowMs / 1000) + i) % SPIN.length] : glyph} `}</Text></Box>
+          <Text wrap="truncate-end">{`${t.id}  `}<Text color="subtle">{t.label}</Text></Text>
+        </Box>
+      ))),
     ] : []
     const isBuilt = (t: Task) => t.status === 'done' || t.status === 'merged'
     const isBuilding = (t: Task) => t.status === 'building' || t.status === 'judging' || t.status === 'doing'
     const boardBody = [
       ...group('gb', 'Built', '✓', GS.green, board.filter(isBuilt)),
-      ...group('ga', 'Building', '●', GS.amber, board.filter(isBuilding)),
+      ...group('ga', 'Building', SPIN[Math.floor(nowMs / 1000) % SPIN.length]!, GS.green, board.filter(isBuilding), true),
       ...group('gp', 'Planned', '○', GS.mist, board.filter(t => !isBuilt(t) && !isBuilding(t) && t.status !== 'parked')),
       ...group('gk', 'Parked', '⚠', GS.amber, board.filter(t => t.status === 'parked')),
     ]
@@ -926,7 +935,7 @@ export const register: Register = (on, options) => {
             const role = roleOf(a.name)
             const live = running.get(a.id)
             const mark = a.id === 'main'
-              ? <Text color={GS.clay}>◆ </Text>
+              ? <Text color={GS.clay}>{working ? `${SPIN[Math.floor(nowMs / 1000) % SPIN.length]} ` : '◆ '}</Text>
               : a.running
                 ? <Text color={role === 'judge' ? 'warning' : role === 'builder' ? 'claude' : 'subtle'}>{`${SPIN[(Math.floor(nowMs / 1000) + i) % SPIN.length]} `}</Text>
                 : <Text color="success">✓ </Text>
@@ -937,7 +946,7 @@ export const register: Register = (on, options) => {
                   <Box flexShrink={0}><Text bold color={a.usd > 0 ? 'claude' : 'subtle'}>{money(a.usd)}</Text></Box>
                 </Box>
                 <Box flexDirection="row" justifyContent="space-between">
-                  <Text dimColor wrap="truncate-end">{`  ${a.id === 'main' ? 'this session' : a.running ? `running ${clock(nowMs - a.startMs)}${live ? ` › ${live.label}` : ''}` : `done in ${clock((a.endMs ?? nowMs) - a.startMs)}`}`}</Text>
+                  <Text dimColor wrap="truncate-end">{`  ${a.id === 'main' ? (working ? `working${mainStep ? ` › ${mainStep}` : '…'}` : 'this session, idle') : a.running ? `running ${clock(nowMs - a.startMs)}${live ? ` › ${live.label}` : ''}` : `done in ${clock((a.endMs ?? nowMs) - a.startMs)}`}`}</Text>
                   <Box flexShrink={0}><Text dimColor>{`${modelLabel(a.model) ?? ''}  ${fmtK(a.input)} in · ${fmtK(a.output)} out`}</Text></Box>
                 </Box>
               </Box>
