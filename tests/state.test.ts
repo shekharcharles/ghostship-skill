@@ -1,5 +1,5 @@
 import { test, expect } from "claude-code/testing";
-import { parseState, parseBoard, progressBar, statusMark, voyageOf as parseVoyage, cmpVersion } from "../hooks/state";
+import { parseState, parseBoard, parseEvidence, progressBar, statusMark, voyageOf as parseVoyage, cmpVersion } from "../hooks/state";
 
 test("parseState reads stage, task, autonomy, phase and the in-flight fields", () => {
   const s = parseState(`autonomy: auto\nstage: build\nphase: 2/3\nactive task: T005\njudge: verifying\nred: done.test.mjs\ngreen: suite 24/24\n`);
@@ -54,4 +54,21 @@ test("cmpVersion orders dotted versions", () => {
   expect(cmpVersion("0.1.1","0.1.1")).toBe(0);
   expect(cmpVersion("0.2.0","0.1.9")>0).toBe(true);
   expect(cmpVersion("1.0.0","0.9.9")>0).toBe(true);
+});
+
+test("parseEvidence reads one verdict per line and skips everything else", () => {
+  const md = [
+    "# Evidence",
+    "",
+    "T005 · PASS   · npm test -- done.test.mjs → exit 0 · suite 24/24 · 2026-10-10",
+    "- T007 · FAIL · exit 1",
+    "T008 · PARKED · blocked by T007",
+    "T009 PASS no separators",
+  ].join("\n");
+  expect(parseEvidence(md)).toEqual([
+    { task: "T005", verdict: "pass", note: "npm test -- done.test.mjs → exit 0 · suite 24/24 · 2026-10-10" },
+    { task: "T007", verdict: "fail", note: "exit 1" },
+    { task: "T008", verdict: "parked", note: "blocked by T007" },
+  ]);
+  expect(parseEvidence("")).toEqual([]);
 });

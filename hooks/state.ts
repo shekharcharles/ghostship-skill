@@ -63,6 +63,18 @@ export function parseBoard(text: string): Task[] {
   return out
 }
 
+export type Verdict = { task: string; verdict: 'pass' | 'fail' | 'parked'; note: string }
+
+/** Parse docs/ghostship/EVIDENCE.md: one line per judged task, `T005 · PASS · npm test → exit 0 · 2026-10-10`. */
+export function parseEvidence(text: string): Verdict[] {
+  const out: Verdict[] = []
+  for (const line of text.split('\n')) {
+    const m = line.match(/^\s*(?:[-*]\s+)?(T\d+)\s*·\s*(PASS|FAIL|PARKED)\b\s*(?:·\s*(.*))?$/i)
+    if (m) out.push({ task: m[1]!, verdict: m[2]!.toLowerCase() as Verdict['verdict'], note: (m[3] ?? '').trim() })
+  }
+  return out
+}
+
 export function progressBar(done: number, total: number, width = 10): string {
   if (total <= 0) return ''
   const filled = Math.round((done / total) * width)

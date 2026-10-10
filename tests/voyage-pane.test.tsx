@@ -17,7 +17,7 @@ async function shows(ui: Pick<Mounted, "findAll">, text: string): Promise<void> 
 
 const BOARD = ["| Task | Phase | Status | Covers |", "|------|-------|--------|--------|", "| T001 | 1 | done | project setup |"].join("\n");
 
-function world(on: any, state: string | null, board: string | null = null) {
+function world(on: any, state: string | null, board: string | null = null, evidence: string | null = null) {
   mock.clock(on);
   on("session.start", ($: any, e: any) => ({ cwd: e.cwd }));
   on("command.register", ($: any, e: any) => ({ value: { command: e.name } }));
@@ -25,6 +25,7 @@ function world(on: any, state: string | null, board: string | null = null) {
   on("fs.read", ($: any, e: any) => {
     if (e.path.endsWith("STATE.md") && state !== null) return { value: state };
     if (e.path.endsWith("BOARD.md") && board !== null) return { value: board };
+    if (e.path.endsWith("EVIDENCE.md") && evidence !== null) return { value: evidence };
     if (e.path.endsWith("plugin.json")) return { value: JSON.stringify({ version: "9.9.9" }) };
     return { deny: `ENOENT ${e.path}` };
   });
@@ -59,5 +60,13 @@ describe("the voyage pane body", () => {
     const ui = await $.ui.mount({ plugin: "ghostship", surface: "terminal", ...PANE });
     const buttons = (await ui.findAll({ type: "Button" })).map((b: any) => JSON.stringify(b));
     expect(buttons.some((l: string) => l.includes("▾ BOARD")), `▾ BOARD in ${JSON.stringify(buttons)}`).toBe(true);
+  });
+
+  test("the recorder lists the verdicts in EVIDENCE.md", { options: { autoOpen: false } }, async ($, on) => {
+    world(on, STATE, BOARD, "T001 · PASS · exit 0\nT002 · PARKED · blocked by T001\n");
+    await $.session.start({ surface: "terminal", isInteractive: true, cwd: "/work" });
+    const ui = await $.ui.mount({ plugin: "ghostship", surface: "terminal", ...PANE });
+    await shows(ui, "✓ T001");
+    await shows(ui, "⚠ T002");
   });
 });

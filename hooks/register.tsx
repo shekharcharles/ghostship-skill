@@ -2,7 +2,7 @@ import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register } from 'claude-code'
 
 import {
-  VOYAGE, STOP_AFTER, parseState, parseBoard, voyageOf, curIndexOf,
+  VOYAGE, STOP_AFTER, parseState, parseBoard, parseEvidence, voyageOf, curIndexOf,
   progressBar, statusMark, cmpVersion, type GhostshipState, type Task,
 } from './state.ts'
 import type { VoyageSnap } from '../types'
@@ -19,6 +19,7 @@ const PANE = 'ghostship-voyage'
 const APP_PANE = 'ghostship-overview'
 const STATE_FILE = 'docs/ghostship/STATE.md'
 const BOARD_FILE = 'docs/ghostship/BOARD.md'
+const EVIDENCE_FILE = 'docs/ghostship/EVIDENCE.md'
 
 const snapAtom = atom({ plugin: 'ghostship', key: 'snap' } as const, null)
 const hiddenAtom = atom({ plugin: 'ghostship', key: 'hidden' } as const, false)
@@ -44,6 +45,9 @@ let activeTask: string | null = null
 let activeSince: number | null = null
 let publishedKey = ''
 let prevStatus: Record<string, string> = {}
+// When each EVIDENCE.md line was first seen (0 for lines already there at the first read).
+let stamps: number[] = []
+let stamped = false
 let installedVersion = ''
 let branch = ''
 let ticks = 0
@@ -134,8 +138,19 @@ function buildSnap(st: GhostshipState, now: number): VoyageSnap {
   return snapFromState(st, activeSince !== null ? Math.max(0, now - activeSince) : -1)
 }
 
-// The build's verdict log: each time a task reaches a terminal status on the board, record it.
+// The build's verdict log. The skill's own EVIDENCE.md is the source when the project has one: lines there when the
+// session starts are history, lines appended later are fresh (the band notices them). Older projects without the
+// file fall back to board changes: each time a task reaches a terminal status, record it.
 async function trackEvidence($: EngineInterface, now: number): Promise<void> {
+  const text = await tryRead($, EVIDENCE_FILE)
+  if (text !== null) {
+    const all = parseEvidence(text)
+    if (all.length === stamps.length && stamped) return
+    stamps = stamped ? [...stamps.slice(0, all.length), ...all.slice(stamps.length).map(() => now)] : all.map(() => 0)
+    stamped = true
+    await update($, evidenceAtom, () => all.map((v, i) => ({ task: v.task, verdict: v.verdict, at: stamps[i] })).slice(-15))
+    return
+  }
   const board = await readBoard($)
   if (!board.length) return
   const first = Object.keys(prevStatus).length === 0
@@ -197,7 +212,7 @@ async function doUpdate($: EngineInterface): Promise<void> {
 export const register: Register = on => {
   on('session.start', async ($, e, next) => {
     const started = await next(e)
-    activeTask = null; activeSince = null; publishedKey = ''
+    activeTask = null; activeSince = null; publishedKey = ''; stamps = []; stamped = false
     try { await readVersion($) } catch { /* unknown version */ }
     try { await seedSpend($) } catch { /* no spend */ }
     // Each step is guarded on its own, so one failure never stops the band from coming up.
@@ -404,7 +419,9 @@ export const register: Register = on => {
           if (ev && nowMs - ev.at < NOTICE_MS) {
             rows.push(ev.verdict === 'pass'
               ? <Text key="gs-note" color={GS.green}>{`✓ ${ev.task} passed`}</Text>
-              : <Text key="gs-note" color={GS.amber}>{`⚠ ${ev.task} ${ev.verdict}`}</Text>)
+              : ev.verdict === 'fail'
+                ? <Text key="gs-note" color="error">{`✗ ${ev.task} failed`}</Text>
+                : <Text key="gs-note" color={GS.amber}>{`⚠ ${ev.task} parked`}</Text>)
             room -= 1
           }
         }
@@ -567,7 +584,7 @@ export const register: Register = on => {
           recorderOpen ? (
             <Box key="ev" flexWrap="wrap">
               {evidence.slice(-6).map((v, i) => (
-                <Text key={`ev${i}`} color={v.verdict === 'pass' ? 'success' : 'warning'}>{`${v.verdict === 'pass' ? '✓' : '⚠'} ${v.task}  `}</Text>
+                <Text key={`ev${i}`} color={v.verdict === 'pass' ? 'success' : v.verdict === 'fail' ? 'error' : 'warning'}>{`${v.verdict === 'pass' ? '✓' : v.verdict === 'fail' ? '✗' : '⚠'} ${v.task}  `}</Text>
               ))}
             </Box>
           ) : null,
