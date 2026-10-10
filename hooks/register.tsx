@@ -606,7 +606,7 @@ export const register: Register = (on, options) => {
       const pBoard = pIn ? await readBoard($) : []
       const pDone = pBoard.filter(t => t.status === 'done' || t.status === 'merged').length
       const pCur = pIn ? curIndexOf(pst!.stage) : -1
-      const where = !pIn ? 'no voyage here' : pst!.stage === 'done' ? 'Released' : `${VOYAGE[pCur]?.label ?? pst!.stage}${pBoard.length ? ` · ${pDone}/${pBoard.length}` : ''}`
+      const where = !pIn ? 'no project here' : pst!.stage === 'done' ? 'Released' : `${VOYAGE[pCur]?.label ?? pst!.stage}${pBoard.length ? ` · ${pDone}/${pBoard.length}` : ''}`
       const hidden = await read($, hiddenAtom)
       const paneUp = await paneIsOpen($)
       // A choice chip: the picked one is a filled chip, the others plain.
@@ -652,7 +652,7 @@ export const register: Register = (on, options) => {
               choice('p-mode', 'MODE', BUILD_MODES.map(m => chip(`p-m-${m}`, m, pst!.mode === m, () => void setStateFieldOnDisk($, 'mode', m)))),
               choice('p-auto', 'AUTONOMY', AUTONOMY_LEVELS.map(a => chip(`p-a-${a}`, a, (pst!.autonomy || 'autopilot') === a, () => void setStateFieldOnDisk($, 'autonomy', a)))),
             ]
-          : [<Text key="p-none" dimColor>Start a voyage to pick the build mode and autonomy.</Text>]),
+          : [<Text key="p-none" dimColor>Start a project (/ghostship new) to pick the build mode and autonomy.</Text>]),
         withHeads ? heading('p-sh', 'S E T T I N G S') : null,
         setting('p-band', 'Band', 'the voyage line above the prompt', !hidden, [
           chip('p-b-on', 'On', !hidden, () => void setHidden($, false)),
@@ -702,8 +702,8 @@ export const register: Register = (on, options) => {
         }, inner, t, snap.activeMs)
         : (
           <Box key="gs-idle" flexDirection="row" gap={3} flexGrow={1}>
-            <Box flexShrink={0}><Text color={GS.clay} bold>{`⛴ Ghostship${installedVersion ? ` v${installedVersion}` : ''}`}</Text></Box>
-            <Text dimColor wrap="truncate-end">no voyage here · /ghostship new to start one</Text>
+            <Box flexShrink={0}><Text color={GS.clay} bold>{`Ghostship${installedVersion ? ` v${installedVersion}` : ''}`}</Text></Box>
+            <Text dimColor wrap="truncate-end">no Ghostship project in this folder · type /ghostship new to start a project</Text>
             {branch ? <Box flexShrink={0}><Text color={GS.subtle}>{`⎇ ${branch}`}</Text></Box> : null}
           </Box>
         )
@@ -873,7 +873,7 @@ export const register: Register = (on, options) => {
 
     // Progress: tasks done once there is a board; before that, how far along the seven stages the voyage is.
     const progress = !inProject
-      ? [head('PROGRESS'), <Text key="pn" dimColor>No voyage here yet · /ghostship new to start one</Text>]
+      ? [head('PROGRESS'), <Text key="pn" dimColor>No Ghostship project in this folder yet. Type /ghostship new to start a project.</Text>]
       : [
           head('PROGRESS', board.length
             ? `${done}/${board.length} tasks · ${Math.round((done / board.length) * 100)}%`
@@ -914,7 +914,7 @@ export const register: Register = (on, options) => {
       <Box flexDirection="column" gap={cards ? 0 : 1}>
         {section('s-banner', edge, [
           controls,
-          <Text key="brand" bold color={GS.clay}>⛴  G H O S T S H I P</Text>,
+          <Text key="brand" bold color={GS.clay}>G H O S T S H I P</Text>,
           <Text key="ver" dimColor>{version ? `v${version}` : ' '}</Text>,
           <Box key="app" justifyContent="space-between" marginTop={1}>
             <Text bold>{name ?? 'This app'}</Text>

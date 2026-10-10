@@ -71,6 +71,6 @@ describe("the pane outside a Ghostship project", () => {
     await shows(ui, "v9.9.9");
     await shows(ui, "Shop");
     await shows(ui, "A tiny shop for teams.");
-    await shows(ui, "No voyage here yet");
+    await shows(ui, "No Ghostship project in this folder yet");
   });
 });

@@ -54,7 +54,7 @@ export function bandTree(ui: { Box: any; Text: any }, props: BandProps, width: n
     if (i < total - 1) { full.push(<Text key={`sp${i}`} color={GS.subtle}>{' › '}</Text>); fullLen += 3 }
   })
 
-  const brand = `⛴ Ghostship${props.version ? ` v${props.version}` : ''}`
+  const brand = `Ghostship${props.version ? ` v${props.version}` : ''}`
   const compact = `${props.curLabel || 'no stage'} ${done}/${total}${props.awaiting ? ' ⏸' : ''}`
   const track = fullLen + GAP + brand.length <= width
     ? <Box key="track" flexDirection="row">{full}</Box>

@@ -39,7 +39,7 @@ describe("the voyage pane body", () => {
     world(on, null);
     await $.session.start({ surface: "terminal", isInteractive: true, cwd: "/work" });
     const ui = await $.ui.mount({ plugin: "ghostship", surface: "terminal", ...PANE });
-    await shows(ui, "No voyage here yet");
+    await shows(ui, "No Ghostship project in this folder yet");
   });
 
   test("a Ghostship project shows its stage", { options: { autoOpen: false } }, async ($, on) => {
