@@ -60,6 +60,14 @@ A project the earlier engine edition ran (a `.ghostship/` folder, the `gs` comma
 
 Before STOP 1 the skill asks for three things: the AI provider and the name of its key variable (never the key), a lab to test against (a deliberately vulnerable application, with two or three candidates found by search and a recommendation), and a spend cap in dollars. They are written to `STATE.md` as `provider env:`, `lab url:` and `spend cap:`. Every 30 seconds the pane checks them: the key variable is set, the lab answers, and a cap is set. The **LIVE TEST** card lists what is missing. When the session reaches the cap, control is taken back and the pane says so.
 
+## What the pane shows now
+
+- **START-UP:** the checks that Ghostship is ready, each `[ OK ]` or `[ .. ]`: project state, board, live test, usage reading, update check. It reads "READY 5 of 5" when all pass.
+- **NEXT STEPS:** the stages of the project, ✓ done, ▶ current with a **do this** button that puts `/ghostship:ghostship resume` in the prompt, ○ to do.
+- **Plan tab:** each task shows its tokens, time and cost, and a line of totals: agents, running, failed, tokens and cost.
+- **The phase line** shows how long the model has been in its phase and roughly how many tokens it has streamed, for example "Thinking: … · 12s · 1.2k tokens".
+- **Turn done:** a toast says how long the turn took and what the session has cost.
+
 ## Control
 
 **Take back control** (Overview, or the ◆ Ghostship menu → Control) stops every agent action at once: the main thread and each subagent are refused, the build is not nudged to carry on, and the pane's top line says so. **Give control back** puts `/ghostship:ghostship resume` in the prompt for you to send. Refusals show on the top line too: a delete that could remove more than it names, a question during the unattended build, and any action while control is taken back. The **ACTIONS** card lists the last twelve actions with ✓ done, ✗ refused, or a spinner while running.
@@ -78,7 +86,7 @@ The pane is tabbed, so you pick a view instead of scrolling one long list: **Ove
 - `types/index.d.ts` — the `$.state` contract
 - `tests/` — `claude plugin test` suites
 
-Status: **0.11.4**, in active development. The earlier engine edition lives at github.com/shekharcharles/ghostship.
+Status: **0.12.0**, in active development. The earlier engine edition lives at github.com/shekharcharles/ghostship.
 
 ## Credits
 

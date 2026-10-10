@@ -55,6 +55,8 @@ const gatesAtom = atom({ plugin: 'ghostship', key: 'gates' } as const, {} as Rec
 const pausedAtom = atom({ plugin: 'ghostship', key: 'paused' } as const, false)
 const eventAtom = atom({ plugin: 'ghostship', key: 'paneEvent' } as const, null as { text: string; tone: 'bad' | 'warn' | 'ok'; at: number } | null)
 // The live test's readiness, checked every 30 s: what is still missing, and the spend cap the owner set.
+const startupAtom = atom({ plugin: 'ghostship', key: 'startup' } as const, [] as { name: string; ok: boolean; detail: string; at: number }[])
+let updateChecked = false
 const readinessAtom = atom({ plugin: 'ghostship', key: 'readiness' } as const, null as { missing: string[]; cap: number | null; at: number } | null)
 const actionsAtom = atom({ plugin: 'ghostship', key: 'actions' } as const, [] as { id: string; label: string; status: 'run' | 'ok' | 'refused'; at: number }[])
 let actionSeq = 0
@@ -91,16 +93,24 @@ type Live = {
   isReplyInWord: boolean
   composing: { tool: string; head: string } | null
   lastAction: string | null
+  since: number          // when this phase began ($.clock.now() ms)
+  tokens: number         // streamed output in this phase, estimated at 4 characters a token
 }
 const MAX_INPUT_HEAD = 400
 const lives = new Map<string, Live>()
 function liveOf(key: string): Live {
   let live = lives.get(key)
   if (!live) {
-    live = { phase: 'idle', thought: '', isThoughtInWord: false, replyWords: 0, isReplyInWord: false, composing: null, lastAction: null }
+    live = { phase: 'idle', thought: '', isThoughtInWord: false, replyWords: 0, isReplyInWord: false, composing: null, lastAction: null, since: 0, tokens: 0 }
     lives.set(key, live)
   }
   return live
+}
+// How long the phase has run and roughly how much it has streamed, after the line: "· 12s · 250 tokens".
+function clockOf(live: Live, nowMs: number): string {
+  if (live.since <= 0 || (live.phase !== 'thinking' && live.phase !== 'writing')) return ''
+  const secs = Math.max(0, Math.round((nowMs - live.since) / 1000))
+  return ` · ${secs}s · ${live.tokens >= 1000 ? `${(live.tokens / 1000).toFixed(1)}k` : live.tokens} tokens`
 }
 // The line that says what an agent is doing this moment, in What's Agent Doing's words.
 function doingOf(live: Live): string | null {
@@ -359,6 +369,7 @@ async function checkUpdate($: EngineInterface): Promise<{ latest?: string; insta
     const latest = await latestVersion($)
     const newer = !!installed && !!latest && cmpVersion(latest, installed) > 0
     await update($, updateAtom, () => (newer ? { latest } : null))
+    updateChecked = true
     return newer ? { latest, installed } : { installed }
   } catch (err) {
     await update($, updateAtom, () => null)
@@ -535,7 +546,13 @@ async function setKeepWarm($: EngineInterface, hours: number): Promise<void> {
 // Whether the live test can run: the provider's key is set, the lab answers and a spend cap is set. Checked every 30 s, not on each redraw.
 async function checkReadiness($: EngineInterface): Promise<void> {
   const st = await readState($)
-  if (!st || !st.stage) { await update($, readinessAtom, () => null); return }
+  const board = await readBoard($)
+  const at = await $.clock.now()
+  if (!st || !st.stage) {
+    await update($, readinessAtom, () => null)
+    await update($, startupAtom, () => [{ name: 'Project state', ok: false, detail: 'no project in this folder', at }])
+    return
+  }
   let hasKey = false
   // The key's name comes from STATE.md; only a plain variable name is checked, and it is passed as an argument, never through a shell.
   if (st.providerEnv && /^[A-Z_][A-Z0-9_]*$/.test(st.providerEnv)) {
@@ -544,8 +561,14 @@ async function checkReadiness($: EngineInterface): Promise<void> {
   let labOk: boolean | null = null
   if (st.labUrl) { try { labOk = (await $.http.fetch(st.labUrl)).status < 500 } catch { labOk = false } }
   const missing = missingForLive(st, { hasKey, labOk })
-  const at = await $.clock.now()
   await update($, readinessAtom, () => ({ missing, cap: st.spendCapUsd, at }))
+  await update($, startupAtom, () => [
+    { name: 'Project state', ok: true, detail: `stage ${st.stage}`, at },
+    { name: 'Board', ok: board.length > 0, detail: `${board.length} tasks`, at },
+    { name: 'Live test', ok: missing.length === 0, detail: missing.length ? `${missing.length} missing` : 'ready', at },
+    { name: 'Usage reading', ok: contextPct !== null, detail: contextPct !== null ? `${Math.round(contextPct)}% of context` : 'waiting for the first reading', at },
+    { name: 'Update check', ok: updateChecked, detail: !updateChecked ? 'not yet' : updateAtom ? 'a newer version is out' : 'up to date', at },
+  ])
 }
 
 // The one line at the top of the pane: the latest event, and what it means.
@@ -658,6 +681,12 @@ export const register: Register = on => {
     liveOf('main').lastAction = null
     liveOf('main').phase = 'idle'
     const now = await $.clock.now()
+    // The turn's end, in the owner's words: how long it took and what it cost so far.
+    if (!e.agentId) {
+      const secs = Math.max(0, Math.round(e.durationMs / 1000))
+      const took = secs < 60 ? `${secs}s` : `${Math.floor(secs / 60)}m ${String(secs % 60).padStart(2, '0')}s`
+      $.ui.toast(`Turn done in ${took}${usd !== null ? ` · $${usd.toFixed(2)} this session` : ''}.`)
+    }
     await update($, lastReplyAtAtom, () => now)
     await publish($)
     await recordSpend($).catch(() => undefined)
@@ -670,18 +699,19 @@ export const register: Register = on => {
   on('turn.step', async function* ($, e, next) {
     // The model's stream, followed chunk by chunk into this agent's live state, and passed on unchanged.
     const live = liveOf(e.agentId ?? 'main')
-    Object.assign(live, { phase: 'requesting', thought: '', isThoughtInWord: false, replyWords: 0, isReplyInWord: false, composing: null })
+    Object.assign(live, { phase: 'requesting', thought: '', isThoughtInWord: false, replyWords: 0, isReplyInWord: false, composing: null, since: await $.clock.now(), tokens: 0 })
     const piece = next(e)
     let result
     for (;;) {
       const step = await piece.next()
       if (step.done) { result = step.value; break }
       const c = step.value
+      if (c.kind === 'thinking' || c.kind === 'text') live.tokens += Math.ceil(c.text.length / 4)
       if (c.kind === 'thinking') {
-        live.phase = 'thinking'
+        if (live.phase !== 'thinking') { live.phase = 'thinking'; live.since = await $.clock.now(); live.tokens = Math.ceil(c.text.length / 4) }
         live.thought = (live.thought + c.text).slice(-2000)
       } else if (c.kind === 'text') {
-        live.phase = 'writing'
+        if (live.phase !== 'writing') { live.phase = 'writing'; live.since = await $.clock.now(); live.tokens = Math.ceil(c.text.length / 4) }
         const w = wordsAdded(c.text, live.isReplyInWord)
         live.replyWords += w.added
         live.isReplyInWord = w.isInWord
@@ -1052,7 +1082,7 @@ export const register: Register = on => {
       }
 
       // What the main thread is doing right now, one line under the usage, while a turn runs: thinking, writing, a call, a tool.
-      const doing = working ? doingOf(liveOf('main')) : null
+      const doing = working ? `${doingOf(liveOf('main')) ?? ''}${clockOf(liveOf('main'), nowMs)}` : null
       if (doing && room >= 1) {
         const lines = rowsOf(`Main thread › ${doing}`, bandWidth, Math.min(3, room))
         lines.forEach((line, i) => rows.push(
@@ -1098,7 +1128,7 @@ export const register: Register = on => {
       shown.forEach(([id, a], i) => {
         const role = roleOf(a.name)
         const color = role === 'judge' ? GS.amber : role === 'builder' ? GS.clay : GS.mist
-        const doing = doingOf(liveOf(id)) ?? a.label
+        const doing = `${doingOf(liveOf(id)) ?? a.label}${clockOf(liveOf(id), nowMs)}`
         const lines = rowsOf(` › ${doing}`, bandWidth - a.name.slice(0, 40).length - 4, share)
         lines.forEach((line, j) => rows.push(
           <Box key={`gs-ag${i}-${j}`} flexDirection="row">
@@ -1169,6 +1199,7 @@ export const register: Register = on => {
     const pevent = await read($, eventAtom)
     const actions = await read($, actionsAtom)
     const readiness = await read($, readinessAtom)
+    const startup = await read($, startupAtom)
     const ttl = await ttlNow($)
     const cacheLeftMs = cacheLeft(nowMs, await read($, lastReplyAtAtom), ttl)
     const money = (v: number | null | undefined) => (v == null ? '—' : `$${v.toFixed(2)}`)
@@ -1271,12 +1302,22 @@ export const register: Register = on => {
     const frame = Math.floor(nowMs / SPIN_MS)
     const gates = await read($, gatesAtom)
     const latestVerdict = new Map((evidence ?? []).map(v => [v.task, v.verdict] as const))
+    // Per task: the tokens, the time and the list-price cost of every agent whose name carries its id.
+    const perTask = new Map<string, { tokens: number; usd: number; ms: number }>()
+    for (const a of ledger) {
+      const id = taskOf(a.name)
+      if (!id) continue
+      const cur = perTask.get(id) ?? { tokens: 0, usd: 0, ms: 0 }
+      perTask.set(id, { tokens: cur.tokens + a.input + a.output, usd: cur.usd + a.usd, ms: cur.ms + ((a.endMs ?? nowMs) - a.startMs) })
+    }
+    const totals = { tokens: ledger.reduce((n, a) => n + a.input + a.output, 0), usd: ledger.reduce((n, a) => n + a.usd, 0), running: ledger.filter(a => a.running).length, failed: (evidence ?? []).filter(v => v.verdict === 'fail').length, agents: ledger.filter(a => a.id !== 'main').length }
     const planSection = section('s-plan', 'subtle', (() => {
       const count = (f: (t: Task) => boolean) => board.filter(f).length
       const phases = [...new Set(board.map(t => t.phase))]
       const queued = (t: Task) => !isBuilt(t) && !isBuilding(t) && t.status !== 'parked'
       return [
         head('PLAN', `${board.length} tasks · ${phases.length} phases`),
+        <Text key="pl-tot" dimColor wrap="truncate-end">{`${totals.agents} agents · ${totals.running} running · ${totals.failed} failed · ${fmtK(totals.tokens)} tokens · $${totals.usd.toFixed(2)}`}</Text>,
         <Box key="pl-sum" flexWrap="wrap" gap={2}>
           <Text color={GS.green}>{`✓ ${count(isBuilt)} done`}</Text>
           <Text color={GS.clay}>{`◆ ${count(isBuilding)} running`}</Text>
@@ -1304,7 +1345,10 @@ export const register: Register = on => {
                     <Text color={color} bold={run}>{`${mark} `}</Text>
                     <Text wrap="truncate-end">{`${t.id}  `}<Text bold>{t.name || t.label}</Text>{t.name && t.label ? <Text color="subtle">{`  · covers ${t.label}`}</Text> : null}</Text>
                   </Box>
-                  <Box flexShrink={0}><Text color={color}>{word}</Text></Box>
+                  <Box flexShrink={0} flexDirection="row" gap={2}>
+                    {perTask.has(t.id) ? <Text dimColor>{`${fmtK(perTask.get(t.id)!.tokens)} · ${clock(perTask.get(t.id)!.ms)} · $${perTask.get(t.id)!.usd.toFixed(2)}`}</Text> : null}
+                    <Text color={color}>{word}</Text>
+                  </Box>
                 </Box>,
                 // The acceptance check that proves the task, and the latest verdict the judge recorded for it.
                 <Box key={`pc-${t.id}`} flexDirection="row" gap={1}>
@@ -1345,6 +1389,32 @@ export const register: Register = on => {
               : <Button key="c-take" label=" Take back control " variant="secondary" onPress={() => void setPaused($, true)} />}
           </Box>,
         ])}
+        {tab === 'overview' && startup && startup.length ? section('s-startup', startup.every(c => c.ok) ? 'subtle' : 'warning', [
+          head('START-UP', startup.every(c => c.ok) ? `READY ${startup.length} of ${startup.length}` : `${startup.filter(c => c.ok).length} of ${startup.length} checks`),
+          ...startup.map(c => (
+            <Box key={`su-${c.name}`} flexDirection="row" gap={1}>
+              <Text color={c.ok ? GS.green : RUFLO.amber} bold>{c.ok ? '[ OK ]' : '[ .. ]'}</Text>
+              <Text>{c.name}</Text>
+              <Text dimColor wrap="truncate-end">{c.detail}</Text>
+            </Box>
+          )),
+        ]) : null}
+        {tab === 'overview' && inProject && st ? section('s-next', 'subtle', [
+          head('NEXT STEPS', `${voyageOf(st.stage).filter(v => v.state === 'd').length} of ${voyageOf(st.stage).length} done`),
+          ...voyageOf(st.stage).map(v => {
+            const about: Record<string, string> = { interview: 'what the project is for', prd: 'what it must do', spec: 'what done means (STOP 1)', plan: 'the phases and tasks', tasks: 'one file per task', build: 'each task built and judged', release: 'the gate green, then tagged' }
+            return (
+              <Box key={`nx-${v.key}`} flexDirection="row" justifyContent="space-between" gap={1}>
+                <Box flexShrink={1} minWidth={0} flexDirection="row" gap={1}>
+                  <Text color={v.state === 'd' ? GS.green : v.state === 'c' ? GS.clay : GS.mist} bold={v.state === 'c'}>{v.state === 'd' ? '✓' : v.state === 'c' ? '▶' : '○'}</Text>
+                  <Text bold={v.state === 'c'} color={v.state === 'd' ? 'subtle' : undefined}>{v.label}</Text>
+                  <Text dimColor wrap="truncate-end">{about[v.key] ?? ''}</Text>
+                </Box>
+                {v.state === 'c' ? <Button key={`nx-go-${v.key}`} label=" do this " variant="primary" onPress={() => void $.prompt.fill({ text: `/${SKILL_COMMAND} resume` }).catch(() => undefined)} /> : null}
+              </Box>
+            )
+          }),
+        ]) : null}
         {tab === 'overview' && readiness ? section('s-live', readiness.missing.length ? 'warning' : 'subtle', [
           head('LIVE TEST', readiness.missing.length ? 'not ready' : 'ready'),
           ...(readiness.missing.length
@@ -1385,7 +1455,7 @@ export const register: Register = on => {
                   <Box flexShrink={0}><Text bold color={a.usd > 0 ? 'claude' : 'subtle'}>{money(a.usd)}</Text></Box>
                 </Box>
                 {a.running && doingOf(liveOf(a.id)) ? (
-                  <Text key={`pth-${a.id}`} color={GS.mist} wrap="wrap">{`   ${doingOf(liveOf(a.id))}`}</Text>
+                  <Text key={`pth-${a.id}`} color={GS.mist} wrap="wrap">{`   ${doingOf(liveOf(a.id))}${clockOf(liveOf(a.id), nowMs)}`}</Text>
                 ) : null}
                 <Box flexDirection="row" justifyContent="space-between">
                   <Text dimColor wrap="truncate-end">{`  ${a.id === 'main' ? (working ? `working${doingOf(liveOf('main')) ? ` › ${doingOf(liveOf('main'))}` : '…'}` : 'this session, idle') : a.running ? `running ${clock(nowMs - a.startMs)}${live ? ` › ${live.label}` : ''}` : `done in ${clock((a.endMs ?? nowMs) - a.startMs)}`}`}</Text>
