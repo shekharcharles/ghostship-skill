@@ -2,7 +2,7 @@ import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register } from 'claude-code'
 
 import {
-  VOYAGE, STOP_AFTER, parseState, parseBoard, parseEvidence, voyageOf, curIndexOf,
+  VOYAGE, STOP_AFTER, parseState, parseBoard, parseEvidence, setStateField, voyageOf, curIndexOf,
   progressBar, statusMark, cmpVersion, type GhostshipState, type Task,
 } from './state.ts'
 import type { VoyageSnap } from '../types'
@@ -25,9 +25,16 @@ const hiddenAtom = atom({ plugin: 'ghostship', key: 'hidden' } as const, false)
 const updateAtom = atom({ plugin: 'ghostship', key: 'update' } as const, null)
 const spendAtom = atom({ plugin: 'ghostship', key: 'spend' } as const, null)
 const evidenceAtom = atom({ plugin: 'ghostship', key: 'evidence' } as const, [])
-// Where the pane is: open on the right, docked as a chip in the band (minimized), or closed. Kept across sessions.
+// Where the pane is: open on the right, docked (minimized; the ◆ Ghostship panel reopens it), or closed. Kept across sessions.
 const paneAtom = atom({ plugin: 'ghostship', key: 'pane' } as const, 'open')
 const filesOpenAtom = atom({ plugin: 'ghostship', key: 'filesOpen' } as const, false)
+// The control panel above the prompt, opened from the ◆ Ghostship button in the prompt's footer.
+const panelOpenAtom = atom({ plugin: 'ghostship', key: 'panelOpen' } as const, false)
+
+// What the panel offers: the build modes and autonomy levels the skill knows, and the skill's own slash command.
+const BUILD_MODES = ['tdd', 'verify', 'iterative'] as const
+const AUTONOMY_LEVELS = ['autopilot', 'auto'] as const
+const SKILL_COMMAND = 'ghostship:ghostship'
 const boardOpenAtom = atom({ plugin: 'ghostship', key: 'boardOpen' } as const, true)
 const recorderOpenAtom = atom({ plugin: 'ghostship', key: 'recorderOpen' } as const, true)
 
@@ -88,7 +95,7 @@ async function seedSpend($: EngineInterface): Promise<void> {
 
 type Fs = { fs: { read: (p: string) => Promise<string> } }
 
-// The pane's two controls, top right like a window: – docks it as a chip in the band above the prompt, ✕ closes it.
+// The pane's two controls, top right like a window: – docks (minimizes) it, ✕ closes it; the ◆ Ghostship panel brings it back.
 // Plain buttons: the engine may take a dismiss-role button before its onPress runs, and these must save where the pane went.
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 function paneControls(ui: any, $: EngineInterface): any {
@@ -184,6 +191,17 @@ async function publish($: EngineInterface): Promise<void> {
   await update($, snapAtom, () => snap)
 }
 
+// Set one field of STATE.md (the panel's mode and autonomy), then show it at once.
+async function setStateFieldOnDisk($: EngineInterface, key: string, value: string): Promise<void> {
+  try {
+    await $.fs.write(STATE_FILE, setStateField(await $.fs.read(STATE_FILE), key, value))
+    await publish($)
+    $.ui.invalidate('ui.render')
+  } catch (err) {
+    $.ui.toast(`Ghostship could not update STATE.md: ${(err as Error).message}`)
+  }
+}
+
 async function setHidden($: EngineInterface, hidden: boolean): Promise<void> {
   await update($, hiddenAtom, () => hidden)
   try { await $.store.set('hidden', hidden) } catch { /* this session only */ }
@@ -235,7 +253,7 @@ export const register: Register = on => {
     try { await publish($) } catch { /* the render falls back to a direct read */ }
     // Versions before 0.4.7 opened a second pane, the Overview; it is folded into the one pane now, so close any left open.
     try { await $.ui.close({ id: 'ghostship-overview' }) } catch { /* none open */ }
-    // The pane opens where it was left: open on the right, docked as a chip in the band, or closed.
+    // The pane opens where it was left: open on the right, or docked or closed until the ◆ Ghostship panel opens it.
     try { if (e.surface === 'terminal' && (await read($, paneAtom)) === 'open') void $.ui.open({ id: PANE, title: 'Ghostship' }) } catch { /* no pane */ }
     // Live refresh: the snapshot every 1.5 s, and a redraw of the band and panes every second.
     try { $.clock.every(1500, () => { ticks += 1; if (ticks % 6 === 1) void readBranch($).catch(() => undefined); void publish($).catch(() => undefined) }) } catch { /* no live refresh */ }
@@ -320,6 +338,89 @@ export const register: Register = on => {
       )
     }
 
+    // The control panel, opened from the ◆ Ghostship button in the prompt's footer: a card on the right, above the band.
+    // Its rows: the build mode and autonomy (written to STATE.md), the band and the pane, and commands to launch.
+    let panel: any = null
+    if (await read($, panelOpenAtom)) {
+      const pst = await readState($)
+      const pIn = !!pst?.stage
+      const pBoard = pIn ? await readBoard($) : []
+      const pDone = pBoard.filter(t => t.status === 'done' || t.status === 'merged').length
+      const pCur = pIn ? curIndexOf(pst!.stage) : -1
+      const where = !pIn ? 'no voyage here' : pst!.stage === 'done' ? 'Released' : `${VOYAGE[pCur]?.label ?? pst!.stage}${pBoard.length ? ` · ${pDone}/${pBoard.length}` : ''}`
+      const hidden = await read($, hiddenAtom)
+      const pane = await read($, paneAtom)
+      // A choice chip: the picked one is a filled chip, the others plain.
+      const chip = (key: string, text: string, picked: boolean, press: () => void) => (
+        <Button key={key} label={` ${text} `} {...(picked ? { variant: 'primary' as const } : { plain: true, dimColor: true })} onPress={press} />
+      )
+      const choice = (key: string, title: string, chips: any[]) => (
+        <Box key={key} flexDirection="row" gap={1}>
+          <Box width={10} flexShrink={0}><Text color="subtle">{title}</Text></Box>
+          {chips}
+        </Box>
+      )
+      const setting = (key: string, title: string, about: string, picked: boolean, chips: any[]) => (
+        <Box key={key} flexDirection="row" justifyContent="space-between" gap={1}>
+          <Box flexDirection="row" gap={1} flexShrink={1} minWidth={0}>
+            <Text color={picked ? GS.green : GS.subtle}>{picked ? '●' : '○'}</Text>
+            <Text bold>{title}</Text>
+            <Text dimColor wrap="truncate-end">{about}</Text>
+          </Box>
+          <Box flexDirection="row" gap={1} flexShrink={0}>{chips}</Box>
+        </Box>
+      )
+      const heading = (key: string, title: string) => <Text key={key} color="subtle">{title}</Text>
+      const launch = (key: string, glyph: string, text: string, command: string) => (
+        <Button key={key} label={`${glyph} ${text}`} plain onPress={() => void $.prompt.fill({ text: command }).catch(() => undefined)} />
+      )
+
+      // Fit the row budget: the panel drops its two section headings first, then its own border.
+      const room = budget - used
+      const base = 1 + (pIn ? 2 : 1) + 2 + 1
+      const withHeads = room >= base + 2 + 2
+      const pBordered = room >= base + (withHeads ? 2 : 0) + 2
+      const rows: any[] = [
+        <Box key="p-head" flexDirection="row" justifyContent="space-between">
+          <Text bold color={GS.clay}>◆  G H O S T S H I P</Text>
+          <Box flexDirection="row" gap={1} flexShrink={0}>
+            <Text color={pst?.awaiting ? GS.amber : GS.mist}>{pst?.awaiting ? '⏸ your move' : where}</Text>
+            <Button key="p-x" label=" ✕" plain dimColor onPress={() => void update($, panelOpenAtom, () => false)} />
+          </Box>
+        </Box>,
+        ...(pIn
+          ? [
+              choice('p-mode', 'MODE', BUILD_MODES.map(m => chip(`p-m-${m}`, m, pst!.mode === m, () => void setStateFieldOnDisk($, 'mode', m)))),
+              choice('p-auto', 'AUTONOMY', AUTONOMY_LEVELS.map(a => chip(`p-a-${a}`, a, (pst!.autonomy || 'autopilot') === a, () => void setStateFieldOnDisk($, 'autonomy', a)))),
+            ]
+          : [<Text key="p-none" dimColor>Start a voyage to pick the build mode and autonomy.</Text>]),
+        withHeads ? heading('p-sh', 'S E T T I N G S') : null,
+        setting('p-band', 'Band', 'the voyage line above the prompt', !hidden, [
+          chip('p-b-on', 'On', !hidden, () => void setHidden($, false)),
+          chip('p-b-off', 'Off', hidden, () => void setHidden($, true)),
+        ]),
+        setting('p-pane', 'Pane', 'the Ghostship pane on the right', pane === 'open', [
+          chip('p-p-open', 'Open', pane === 'open', () => void movePane($, 'open')),
+          chip('p-p-dock', 'Docked', pane === 'docked', () => void movePane($, 'docked')),
+          chip('p-p-close', 'Closed', pane === 'closed', () => void movePane($, 'closed')),
+        ]),
+        withHeads ? heading('p-lh', 'L A U N C H') : null,
+        <Box key="p-launch" flexDirection="row" flexWrap="wrap" gap={2}>
+          {launch('p-l-new', '✦', 'New voyage', `/${SKILL_COMMAND} new`)}
+          {launch('p-l-resume', '◆', 'Resume', `/${SKILL_COMMAND} resume`)}
+          {launch('p-l-status', '◆', 'Status', `/${SKILL_COMMAND} status`)}
+          {launch('p-l-release', '◆', 'Release', `/${SKILL_COMMAND} release`)}
+        </Box>,
+      ]
+      if (room >= base) {
+        used += base + (withHeads ? 2 : 0) + (pBordered ? 2 : 0)
+        const width = Math.min(72, Math.max(40, (e.props.bodyColumns || 80) - 2))
+        panel = pBordered
+          ? <Box key="gs-panel" flexDirection="column" alignSelf="flex-end" width={width} borderStyle="round" borderColor={GS.clay} paddingX={1}>{rows}</Box>
+          : <Box key="gs-panel" flexDirection="column" alignSelf="flex-end" width={width}>{rows}</Box>
+      }
+    }
+
     // The band: one card, its border the state at a glance — amber waits on you, green is released, clay is building,
     // grey is idle. Inside: the voyage line, then a STOP waiting or a fresh verdict, then a row per subagent at work.
     let card: unknown = null
@@ -331,11 +432,8 @@ export const register: Register = on => {
       }
       const inProject = !!(snap && snap.visible)
       const bordered = budget - used >= 3
-      // A docked (minimized) pane waits in the band as a chip; one click opens it again where it was.
-      const docked = (await read($, paneAtom)) === 'docked'
-      const chip = docked ? <Button key="gs-pane" label=" ▣ pane " variant="secondary" onPress={() => void movePane($, 'open')} /> : null
       // Inside the card: the border and padding take 4 columns, the ✕ takes 3.
-      const inner = Math.max(24, (e.props.bodyColumns || 80) - (bordered ? 4 : 0) - 3 - (docked ? 9 : 0))
+      const inner = Math.max(24, (e.props.bodyColumns || 80) - (bordered ? 4 : 0) - 3)
       const hide = <Button key="gs-band-x" label=" ✕" plain dimColor onPress={() => void setHidden($, true)} />
 
       const head = snap && inProject
@@ -350,7 +448,7 @@ export const register: Register = on => {
             {branch ? <Box flexShrink={0}><Text color={GS.subtle}>{`⎇ ${branch}`}</Text></Box> : null}
           </Box>
         )
-      const rows: unknown[] = [<Box key="gs-head" flexDirection="row" justifyContent="space-between">{head}{chip}{hide}</Box>]
+      const rows: unknown[] = [<Box key="gs-head" flexDirection="row" justifyContent="space-between">{head}{hide}</Box>]
       let room = budget - used - (bordered ? 3 : 1)
 
       // A STOP waiting on the owner stays until it is answered; otherwise a verdict shows for 20 seconds after it lands.
@@ -399,13 +497,28 @@ export const register: Register = on => {
         : rows[0]
     }
 
-    if (!updateRow && !card) return drawn
-    return <Box flexDirection="column">{drawn}{updateRow}{card}</Box>
+    if (!updateRow && !panel && !card) return drawn
+    return <Box flexDirection="column">{drawn}{updateRow}{panel}{card}</Box>
     } catch (err) {
       const msg = (err as Error).message
       $.ui.log(`ghostship band: ${msg}`, { to: "debug" })
       return <Box flexDirection="column">{drawn}<Text color={GS.amber}>{`ghostship band error: ${msg}`}</Text></Box>
     }
+  })
+
+  // ---- the footer button: ◆ Ghostship at the right of the prompt's footer, beside the engine's own mode labels ----
+  // It opens and closes the control panel; the panel brings back a docked or closed pane and a hidden band.
+  on('ui.render', { component: 'SessionMode' }, async ($, e, next) => {
+    const drawn = await next(e)
+    if (e.surface !== 'terminal') return drawn
+    const { Box, Button } = $.ui.resolve(e)
+    const open = await read($, panelOpenAtom)
+    return (
+      <Box flexDirection="row" gap={2}>
+        {drawn}
+        <Button key="gs-foot" label={`◆ Ghostship ${open ? '▴' : '▾'}`} {...(open ? { variant: 'primary' as const } : { variant: 'secondary' as const })} onPress={() => void update($, panelOpenAtom, () => !open)} />
+      </Box>
+    )
   })
 
   // ---- the Ghostship pane, docked right: the app, its voyage and its build in one view ----

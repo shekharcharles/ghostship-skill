@@ -22,6 +22,7 @@ declare module 'claude-code' {
       evidence: { task: string; verdict: 'pass' | 'fail' | 'parked'; at: number }[]
       pane: 'open' | 'docked' | 'closed'  // where the pane is: on the right, minimized into the band, or closed
       filesOpen: boolean       // the pane's FILES section is expanded
+      panelOpen: boolean       // the control panel above the prompt is open (◆ Ghostship in the footer)
       boardOpen: boolean       // the voyage pane's BOARD section is expanded
       recorderOpen: boolean    // the voyage pane's RECORDER section is expanded
     }

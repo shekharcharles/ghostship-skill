@@ -1,5 +1,5 @@
 import { test, expect } from "claude-code/testing";
-import { parseState, parseBoard, parseEvidence, progressBar, statusMark, voyageOf as parseVoyage, cmpVersion } from "../hooks/state";
+import { parseState, parseBoard, parseEvidence, setStateField, progressBar, statusMark, voyageOf as parseVoyage, cmpVersion } from "../hooks/state";
 
 test("parseState reads stage, task, autonomy, phase and the in-flight fields", () => {
   const s = parseState(`autonomy: auto\nstage: build\nphase: 2/3\nactive task: T005\njudge: verifying\nred: done.test.mjs\ngreen: suite 24/24\n`);
@@ -71,4 +71,19 @@ test("parseEvidence reads one verdict per line and skips everything else", () =>
     { task: "T008", verdict: "parked", note: "blocked by T007" },
   ]);
   expect(parseEvidence("")).toEqual([]);
+});
+
+test("setStateField replaces a field in place, or adds it after stage", () => {
+  const md = "stage: build\nphase: 2/3\nmode: tdd\n";
+  expect(setStateField(md, "mode", "verify")).toBe("stage: build\nphase: 2/3\nmode: verify\n");
+  expect(setStateField(md, "autonomy", "auto")).toBe("stage: build\nautonomy: auto\nphase: 2/3\nmode: tdd\n");
+  expect(setStateField("phase: 1/2\n", "mode", "tdd")).toBe("phase: 1/2\nmode: tdd\n");
+  expect(parseState(setStateField(md, "mode", "iterative")).stage).toBe("build");
+});
+
+test("parseState reads mode and autonomy as one word, ignoring a trailing comment", () => {
+  const st = parseState("stage: build\nmode: iterative       # tdd | verify | iterative\nautonomy: auto   # autopilot | auto\n");
+  expect(st.mode).toBe("iterative");
+  expect(st.autonomy).toBe("auto");
+  expect(parseState("stage: plan\n").mode).toBe(null);
 });

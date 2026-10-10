@@ -22,6 +22,7 @@ export type GhostshipState = {
   stage: StageKey | null
   task: string | null
   autonomy: string | null
+  mode: string | null
   awaiting: string | null
   phase: string | null
   builder: string | null
@@ -41,7 +42,9 @@ export function parseState(text: string): GhostshipState {
   return {
     stage,
     task: field('active task') || field('task'),
-    autonomy: (field('autonomy') || '').toLowerCase() || null,
+    // First word only: a STATE.md copied from the template keeps its `# …` comments after the value.
+    autonomy: (field('autonomy') || '').split(/\s+/)[0]!.toLowerCase() || null,
+    mode: (field('mode') || '').split(/\s+/)[0]!.toLowerCase() || null,
     awaiting: (field('awaiting') || '').toLowerCase() || null,
     phase: field('phase'),
     builder: field('builder'),
@@ -108,4 +111,17 @@ export function cmpVersion(a: string, b: string): number {
     if (d) return d
   }
   return 0
+}
+
+/** STATE.md with one `key: value` line set: replaced in place when present, otherwise added after `stage:` (or at the end). */
+export function setStateField(text: string, key: string, value: string): string {
+  const lines = text.split('\n')
+  const at = lines.findIndex(l => l.trim().toLowerCase().startsWith(`${key}:`))
+  if (at >= 0) lines[at] = `${key}: ${value}`
+  else {
+    const stage = lines.findIndex(l => l.trim().toLowerCase().startsWith('stage:'))
+    if (stage >= 0) lines.splice(stage + 1, 0, `${key}: ${value}`)
+    else lines.splice(lines[lines.length - 1] === '' ? lines.length - 1 : lines.length, 0, `${key}: ${value}`)
+  }
+  return lines.join('\n')
 }
