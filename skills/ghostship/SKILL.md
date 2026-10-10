@@ -125,6 +125,23 @@ Other files: `PRD.md` · `spec.md` · `plan.md` (the pipeline artifacts) and `ta
 - **add** / **change** — a new feature / a change to approved behaviour: reopen only the affected artifact (e.g. `spec.md`), re-approve it, rebuild only what changed.
 - **release** — assemble, verify, and tag the release automatically when the gate is green (no owner approval).
 
+## Test first, for real
+
+Every task is built red, then green, and the evidence shows both, in order:
+1. **Red.** The builder writes the failing test for the task's behaviour, runs it, and records `red: <command> → fail: <the failure, in words>` on the task's evidence line. The failure must be about the behaviour (`expected 3 findings, got 0`), not a syntax or import error.
+2. **Green.** Only then the builder writes the code, runs the same test, and records `green: <command> → pass`.
+3. **E2E.** The judge runs the product against the lab and records `e2e: <command> → <what it showed>`.
+
+The judge checks the order: a red run recorded after the code, or no red run at all, means the task is `no red test`, and the subagent is redeployed. A task with red, green and e2e is built; anything less is unproven.
+
+## Talking to the owner while building
+
+The owner can talk to you at any time, and the builders keep running. Answer, discuss, and never stop a builder to do it.
+- **Discuss only:** when the owner says so (or asks what should change), change no files. Talk through the options: what each feature is, what it costs, what it depends on, what the other option would lose.
+- **To change scope:** write the proposal as a list in chat, one line each: **add** (name, what it does), **change** (ID, what changes), **drop** (ID, why). The owner says apply, or changes the list.
+- **When the owner says apply:** bump `PRD.md` to the next version and list what changed in it; add the new tasks to `BOARD.md` with the next numbers and their names, each with its red test; change the criteria the list touches (named, with the owner's approval recorded in `DECISIONS.md`); mark dropped tasks `dropped` with the reason, and park what depends on them with `blocked by`. A builder already running finishes its current attempt; the change applies to the board after it reports. Update `STATE.md` last.
+- **A change to the spec** that the owner approves in chat is approved. It does not need a second STOP 1.
+
 ## What counts as built
 
 A task is **built** only when the running application does what the spec says, from its real entry point. Unit tests passing is not built. Code that exists but nothing calls is not built. "Zero findings" is not a pass.

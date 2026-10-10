@@ -2,7 +2,7 @@ import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register } from 'claude-code'
 
 import {
-  VOYAGE, STOP_AFTER, gateOf, provenOf, parseState, parseBoard, parseEvidence, setStateField, isUnattended, remainingTasks, voyageOf, curIndexOf,
+  VOYAGE, STOP_AFTER, gateOf, provenOf, tddOf, parseState, parseBoard, parseEvidence, setStateField, isUnattended, remainingTasks, voyageOf, curIndexOf,
   progressBar, statusMark, cmpVersion, type GhostshipState, type Task,
 } from './state.ts'
 import type { VoyageSnap } from '../types'
@@ -279,19 +279,19 @@ async function trackEvidence($: EngineInterface, now: number): Promise<void> {
     if (all.length === stamps.length && stamped) return
     stamps = stamped ? [...stamps.slice(0, all.length), ...all.slice(stamps.length).map(() => now)] : all.map(() => 0)
     stamped = true
-    await update($, evidenceAtom, () => all.map((v, i) => ({ task: v.task, verdict: v.verdict, at: stamps[i], proven: v.verdict === 'pass' && provenOf(v.note) })).slice(-15))
+    await update($, evidenceAtom, () => all.map((v, i) => ({ task: v.task, verdict: v.verdict, at: stamps[i], proven: v.verdict === 'pass' && provenOf(v.note), tdd: v.verdict === 'pass' && tddOf(v.note) })).slice(-15))
     return
   }
   const board = await readBoard($)
   if (!board.length) return
   const first = Object.keys(prevStatus).length === 0
-  const adds: { task: string; verdict: 'pass' | 'fail' | 'parked'; at: number; proven: boolean }[] = []
+  const adds: { task: string; verdict: 'pass' | 'fail' | 'parked'; at: number; proven: boolean; tdd: boolean }[] = []
   for (const t of board) {
     const terminal = t.status === 'done' || t.status === 'merged' ? 'pass' : t.status === 'parked' ? 'parked' : null
-    if (!first && prevStatus[t.id] && prevStatus[t.id] !== t.status && terminal) adds.push({ task: t.id, verdict: terminal as 'pass' | 'parked', at: now, proven: false })
+    if (!first && prevStatus[t.id] && prevStatus[t.id] !== t.status && terminal) adds.push({ task: t.id, verdict: terminal as 'pass' | 'parked', at: now, proven: false, tdd: false })
     prevStatus[t.id] = t.status
   }
-  if (adds.length) await update($, evidenceAtom, (log: { task: string; verdict: 'pass' | 'fail' | 'parked'; at: number; proven: boolean }[] = []) => [...log, ...adds].slice(-15))
+  if (adds.length) await update($, evidenceAtom, (log: { task: string; verdict: 'pass' | 'fail' | 'parked'; at: number; proven: boolean; tdd: boolean }[] = []) => [...log, ...adds].slice(-15))
 }
 
 // A project still on the engine edition keeps its state in .ghostship/, not docs/ghostship/: the views say how to move it over.
@@ -1319,8 +1319,8 @@ export const register: Register = on => {
         head('PLAN', `${board.length} tasks · ${phases.length} phases`),
         <Text key="pl-tot" dimColor wrap="truncate-end">{`${totals.agents} agents · ${totals.running} running · ${totals.failed} failed · ${fmtK(totals.tokens)} tokens · $${totals.usd.toFixed(2)}`}</Text>,
         <Box key="pl-sum" flexWrap="wrap" gap={2}>
-          <Text color={GS.green}>{`✓ ${(evidence ?? []).filter(v => v.verdict === 'pass' && v.proven).length} built`}</Text>
-          <Text color={GS.amber}>{`! ${count(isBuilt) - (evidence ?? []).filter(v => v.verdict === 'pass' && v.proven).length} unproven`}</Text>
+          <Text color={GS.green}>{`✓ ${(evidence ?? []).filter(v => v.verdict === 'pass' && v.proven && v.tdd).length} built`}</Text>
+          <Text color={GS.amber}>{`! ${count(isBuilt) - (evidence ?? []).filter(v => v.verdict === 'pass' && v.proven && v.tdd).length} not built yet`}</Text>
           <Text color={GS.clay}>{`◆ ${count(isBuilding)} running`}</Text>
           <Text color={GS.mist}>{`○ ${count(queued)} to do`}</Text>
           <Text color={GS.amber}>{`⚠ ${count(t => t.status === 'parked')} on hold`}</Text>
@@ -1337,10 +1337,11 @@ export const register: Register = on => {
             ...ts.flatMap(t => {
               const run = isBuilding(t)
               const ev = latestVerdict.get(t.id)
+              const won = (evidence ?? []).find(v => v.task === t.id && v.verdict === 'pass')
+              const proven = !!won?.proven && !!won?.tdd
               const mark = run ? SPIN[frame % SPIN.length]! : isBuilt(t) ? '✓' : t.status === 'parked' ? '⚠' : '○'
-              const color = isBuilt(t) ? ((evidence ?? []).some(v => v.task === t.id && v.verdict === 'pass' && v.proven) ? GS.green : GS.amber) : run ? GS.green : t.status === 'parked' ? GS.amber : GS.mist
-              const proven = (evidence ?? []).some(v => v.task === t.id && v.verdict === 'pass' && v.proven)
-              const word = isBuilt(t) ? (proven ? 'built' : 'unproven') : run ? (t.status === 'judging' ? 'judging' : 'building') : t.status === 'parked' ? 'on hold' : 'to do'
+              const color = isBuilt(t) ? (proven ? GS.green : GS.amber) : run ? GS.green : t.status === 'parked' ? GS.amber : GS.mist
+              const word = isBuilt(t) ? (proven ? 'built' : !won?.tdd ? 'no red test' : 'unproven') : run ? (t.status === 'judging' ? 'judging' : 'building') : t.status === 'parked' ? 'on hold' : 'to do'
               return [
                 <Box key={`pt-${t.id}`} flexDirection="row" justifyContent="space-between" gap={1}>
                   <Box flexShrink={1} minWidth={0}>
@@ -1495,6 +1496,12 @@ export const register: Register = on => {
           st!.red ? <Text key="r" color="error">{`red  ✗ `}<Text dimColor>{st!.red}</Text></Text> : null,
           st!.green ? <Text key="g" color="success">{`green ✓ `}<Text dimColor>{st!.green}</Text></Text> : null,
         ]) : null}
+        {tab === 'plan' ? (
+          <Box key="plan-talk" flexDirection="row" justifyContent="space-between" gap={1}>
+            <Text dimColor>Talk about the build: add, change or drop features. The build keeps running.</Text>
+            <Button key="plan-talk-go" label=" discuss a change " variant="secondary" onPress={() => void $.prompt.fill({ text: "Let's discuss changes to the build: " }).catch(() => undefined)} />
+          </Box>
+        ) : null}
         {tab === 'plan' && planSection}
         {tab === 'overview' && evidence && evidence.length ? section('s-rec', 'subtle', [
           disclosure('RECORDER', recorderOpen, `${evidence.length} verdicts`, () => void update($, recorderOpenAtom, () => !recorderOpen)),

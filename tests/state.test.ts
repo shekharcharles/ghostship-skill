@@ -151,3 +151,11 @@ test("a pass counts as built only when it ran end to end", () => {
   expect(provenOf("e2e:")).toBe(false);
 });
 
+
+import { tddOf } from "../hooks/state.ts";
+
+test("test first: a red run is recorded before the green one", () => {
+  expect(tddOf("red: npm test -- sign-in → fail: 1 failing · green: npm test -- sign-in → pass")).toBe(true);
+  expect(tddOf("green: npm test → pass")).toBe(false);
+  expect(tddOf("green: npm test → pass · red: npm test → fail")).toBe(false);
+});

@@ -190,3 +190,10 @@ export function gateOf(text: string): string | null {
 export function provenOf(note: string): boolean {
   return /\be2e\s*:\s*\S/i.test(note)
 }
+
+/** Whether a verdict's note shows red then green: `red: <command> → fail … · green: <command> → pass`. Test first, or it is not TDD. */
+export function tddOf(note: string): boolean {
+  const red = note.search(/\bred\s*:\s*\S/i)
+  const green = note.search(/\bgreen\s*:\s*\S/i)
+  return red >= 0 && green > red
+}
