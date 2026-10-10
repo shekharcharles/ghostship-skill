@@ -335,7 +335,7 @@ async function setRouting($: EngineInterface, role: Role, tier: Tier): Promise<v
   await $.store.set('routing', next)
 }
 
-// Keep warm: a window of 2h or 6h, or off. The refresh itself runs from the tick, a sixth of the cache's lifetime before cold.
+// Keep warm: a window of 1h or 2h, or off. The refresh itself runs from the tick, a sixth of the cache's lifetime before cold.
 async function setKeepWarm($: EngineInterface, hours: number): Promise<void> {
   const now = await $.clock.now()
   await update($, keepWarmAtom, () => (hours ? { until: now + hours * 3_600_000, hours } : null))
@@ -1002,7 +1002,7 @@ export const register: Register = (on, options) => {
           <Box key="c-keep" flexDirection="row" justifyContent="space-between" marginTop={1}>
             <Box flexDirection="row" gap={1}>
               <Text color="subtle">Keep warm while away</Text>
-              {[0, 2, 6].map(hrs => (
+              {[0, 1, 2].map(hrs => (
                 <Button key={`c-k${hrs}`} label={` ${hrs ? `${hrs}h` : 'Off'} `} {...((keep ? keep.hours : 0) === hrs ? { variant: 'primary' as const } : { plain: true, dimColor: true })} onPress={() => void setKeepWarm($, hrs)} />
               ))}
             </Box>

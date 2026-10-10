@@ -38,7 +38,7 @@ The band's second line is your usage: the model, **what this project has cost ac
 The pane adds three cards:
 
 - **AGENTS** — the main thread and every subagent of this session: running (with its current step) or done, its model, tokens in and out, and what it has cost.
-- **CACHE** — warm or cold and for how long, the lifetime in use, what a cold send would write again and cost, the last refresh's receipt, and **Keep warm** (Off / 2h / 6h): while on, one small refresh goes out shortly before the cache would go cold (10 minutes ahead on a one-hour cache), and it stops by itself if a refresh finds the cache already gone.
+- **CACHE** — warm or cold and for how long, the lifetime in use, what a cold send would write again and cost, the last refresh's receipt, and **Keep warm while away** (Off / 1h / 2h): while on, one small refresh goes out shortly before the cache would go cold (10 minutes ahead on a one-hour cache), and it stops by itself if a refresh finds the cache already gone.
 - **ROUTING** — which model each subagent role runs on (Haiku / Sonnet / Opus per role).
 - **SPEND** — the project, this session, the main thread against the subagents, and the split by model.
 
@@ -62,4 +62,4 @@ The pane reads the project's own files (`package.json` or `README.md`, `docs/gho
 - `types/index.d.ts` — the `$.state` contract
 - `tests/` — `claude plugin test` suites
 
-Status: **0.6.4**, in active development. The earlier engine edition lives at github.com/shekharcharles/ghostship.
+Status: **0.6.5**, in active development. The earlier engine edition lives at github.com/shekharcharles/ghostship.
