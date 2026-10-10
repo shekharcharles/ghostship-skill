@@ -29,9 +29,9 @@ Then in any project: `/ghostship new` (or `adopt`, `resume`).
 | `/ghostship-band` | Show or hide the band above the prompt |
 | `/ghostship-update` | Check for and install the latest version |
 
-**`◆ Ghostship ▾`**, at the right of the prompt's footer, opens the **control panel** above the prompt: the build mode (`tdd` / `verify` / `iterative`) and autonomy (`autopilot` / `auto`), written straight to `STATE.md`; the band on or off; the pane open, docked or closed; and launch buttons that put `/ghostship:ghostship new`, `resume`, `status` or `release` in the prompt for you to send.
+**`◆ Ghostship ▾`**, at the right of the prompt's footer, opens the **control panel** above the prompt: the build mode (`tdd` / `verify` / `iterative`) and autonomy (`autopilot` / `auto`), written straight to `STATE.md`; the band on or off; the pane open or minimized; and launch buttons that put `/ghostship:ghostship new`, `resume`, `status` or `release` in the prompt for you to send.
 
-The pane's `–` minimizes it and `✕` closes it; the control panel opens it again. Either choice is remembered by the next session.
+The pane opens when you ask: `/ghostship`, or **Open** in the control panel. Its `–` minimizes it to the `◆ Ghostship` button; the panel opens it again.
 
 The pane reads the project's own files (`package.json` or `README.md`, `docs/ghostship/STATE.md`, `BOARD.md`, `EVIDENCE.md`, the top-level folder), so it shows something useful in any project.
 
@@ -45,4 +45,4 @@ The pane reads the project's own files (`package.json` or `README.md`, `docs/gho
 - `types/index.d.ts` — the `$.state` contract
 - `tests/` — `claude plugin test` suites
 
-Status: **0.4.9**, in active development. The earlier engine edition lives at github.com/shekharcharles/ghostship.
+Status: **0.4.10**, in active development. The earlier engine edition lives at github.com/shekharcharles/ghostship.

@@ -25,8 +25,6 @@ const hiddenAtom = atom({ plugin: 'ghostship', key: 'hidden' } as const, false)
 const updateAtom = atom({ plugin: 'ghostship', key: 'update' } as const, null)
 const spendAtom = atom({ plugin: 'ghostship', key: 'spend' } as const, null)
 const evidenceAtom = atom({ plugin: 'ghostship', key: 'evidence' } as const, [])
-// Where the pane is: open on the right, docked (minimized; the ◆ Ghostship panel reopens it), or closed. Kept across sessions.
-const paneAtom = atom({ plugin: 'ghostship', key: 'pane' } as const, 'open')
 const filesOpenAtom = atom({ plugin: 'ghostship', key: 'filesOpen' } as const, false)
 // The control panel above the prompt, opened from the ◆ Ghostship button in the prompt's footer.
 const panelOpenAtom = atom({ plugin: 'ghostship', key: 'panelOpen' } as const, false)
@@ -62,6 +60,8 @@ let ticks = 0
 // shortcut: an agent that never reports its stop keeps its row until the session restarts; sweep by age if that shows up.
 const running = new Map<string, Running>()
 const MAX_AGENT_ROWS = 4
+// Rows kept for other mods' bands drawn above ours (What's Agent Doing's box is 3).
+const OTHER_MOD_ROWS = 4
 // A verdict shows on the band this long after it lands; the spinner's frames, one a second.
 const NOTICE_MS = 20_000
 const SPIN = ['◐', '◓', '◑', '◒']
@@ -95,25 +95,28 @@ async function seedSpend($: EngineInterface): Promise<void> {
 
 type Fs = { fs: { read: (p: string) => Promise<string> } }
 
-// The pane's two controls, top right like a window: – docks (minimizes) it, ✕ closes it; the ◆ Ghostship panel brings it back.
-// Plain buttons: the engine may take a dismiss-role button before its onPress runs, and these must save where the pane went.
+// The pane's control, top right: – minimizes it to the ◆ Ghostship button in the prompt's footer, whose panel opens it again.
+// A plain button: the engine may take a dismiss-role button before its onPress runs.
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 function paneControls(ui: any, $: EngineInterface): any {
   const { Box, Button } = ui
   return (
     <Box key="controls" flexDirection="row" gap={2} justifyContent="flex-end">
-      <Button key="pane-dock" label=" – " plain dimColor onPress={() => void movePane($, 'docked')} />
-      <Button key="pane-close" label=" ✕ " plain dimColor onPress={() => void movePane($, 'closed')} />
+      <Button key="pane-dock" label=" – " plain dimColor onPress={() => void setPane($, false)} />
     </Box>
   )
 }
 
-// Open, dock or close the pane, and remember it for the next session.
-async function movePane($: EngineInterface, to: 'open' | 'docked' | 'closed'): Promise<void> {
-  await update($, paneAtom, () => to)
-  try { await $.store.set('pane', to) } catch { /* this session only */ }
-  if (to === 'open') await $.ui.open({ id: PANE, title: 'Ghostship' })
+// Open or minimize the pane. It opens only when asked (a command or a press): a pane opened unasked waits for a
+// 144-column window, so it could silently never show.
+async function setPane($: EngineInterface, open: boolean): Promise<void> {
+  if (open) await $.ui.open({ id: PANE, title: 'Ghostship' })
   else await $.ui.close({ id: PANE })
+}
+
+// Whether the pane is open, from the engine's own record: true however it was closed (–, Esc, the engine).
+async function paneIsOpen($: EngineInterface): Promise<boolean> {
+  try { return (await $.ui.panes()).some(p => p.id === PANE) } catch { return false }
 }
 
 async function readState($: Fs): Promise<GhostshipState | null> {
@@ -247,14 +250,11 @@ export const register: Register = on => {
     try { await $.command.register({ name: 'ghostship-band', description: 'Ghostship: show or hide the voyage band', immediate: true }) } catch { /* no command */ }
     try { await $.command.register({ name: 'ghostship-update', description: 'Ghostship: check for and install the latest version', immediate: true }) } catch { /* no command */ }
     try { const v = await $.store.get('hidden'); if (typeof v === 'boolean') await update($, hiddenAtom, () => v) } catch { /* nothing stored */ }
-    try { const p = await $.store.get('pane'); if (p === 'open' || p === 'docked' || p === 'closed') await update($, paneAtom, () => p) } catch { /* nothing stored */ }
     // The band above the prompt is the only live line; clear any status line an older version pinned.
     try { $.ui.status(undefined) } catch { /* no status line */ }
     try { await publish($) } catch { /* the render falls back to a direct read */ }
     // Versions before 0.4.7 opened a second pane, the Overview; it is folded into the one pane now, so close any left open.
     try { await $.ui.close({ id: 'ghostship-overview' }) } catch { /* none open */ }
-    // The pane opens where it was left: open on the right, or docked or closed until the ◆ Ghostship panel opens it.
-    try { if (e.surface === 'terminal' && (await read($, paneAtom)) === 'open') void $.ui.open({ id: PANE, title: 'Ghostship' }) } catch { /* no pane */ }
     // Live refresh: the snapshot every 1.5 s, and a redraw of the band and panes every second.
     try { $.clock.every(1500, () => { ticks += 1; if (ticks % 6 === 1) void readBranch($).catch(() => undefined); void publish($).catch(() => undefined) }) } catch { /* no live refresh */ }
     try { $.clock.every(1000, () => $.ui.invalidate('ui.render')) } catch { /* no redraw timer */ }
@@ -286,7 +286,7 @@ export const register: Register = on => {
   }).catch(($, e, next) => next(e))
 
   on('command.run', { command: 'ghostship' }, async $ => {
-    await movePane($, 'open')
+    await setPane($, true)
     return { text: 'Ghostship pane opened.' }
   })
 
@@ -317,8 +317,9 @@ export const register: Register = on => {
     try {
 
     // The row budget: the engine gives this slot maxRows rows and drops a taller tree whole, without a word.
-    // shortcut: the other mods' rows drawn above ours are not counted; if a crowded band still vanishes, count `drawn` too.
-    const budget = typeof e.props.maxRows === 'number' ? e.props.maxRows : 12
+    // shortcut: other mods' rows drawn above ours cannot be measured, so OTHER_MOD_ROWS are kept for them whenever they
+    // draw; raise it if a crowded band still vanishes.
+    const budget = Math.max(0, (typeof e.props.maxRows === 'number' ? e.props.maxRows : 12) - (drawn ? OTHER_MOD_ROWS : 0))
     let used = 0
     const nowMs = await $.clock.now()
     const t = Math.floor(nowMs / 1000)
@@ -349,7 +350,7 @@ export const register: Register = on => {
       const pCur = pIn ? curIndexOf(pst!.stage) : -1
       const where = !pIn ? 'no voyage here' : pst!.stage === 'done' ? 'Released' : `${VOYAGE[pCur]?.label ?? pst!.stage}${pBoard.length ? ` · ${pDone}/${pBoard.length}` : ''}`
       const hidden = await read($, hiddenAtom)
-      const pane = await read($, paneAtom)
+      const paneUp = await paneIsOpen($)
       // A choice chip: the picked one is a filled chip, the others plain.
       const chip = (key: string, text: string, picked: boolean, press: () => void) => (
         <Button key={key} label={` ${text} `} {...(picked ? { variant: 'primary' as const } : { plain: true, dimColor: true })} onPress={press} />
@@ -399,10 +400,9 @@ export const register: Register = on => {
           chip('p-b-on', 'On', !hidden, () => void setHidden($, false)),
           chip('p-b-off', 'Off', hidden, () => void setHidden($, true)),
         ]),
-        setting('p-pane', 'Pane', 'the Ghostship pane on the right', pane === 'open', [
-          chip('p-p-open', 'Open', pane === 'open', () => void movePane($, 'open')),
-          chip('p-p-dock', 'Docked', pane === 'docked', () => void movePane($, 'docked')),
-          chip('p-p-close', 'Closed', pane === 'closed', () => void movePane($, 'closed')),
+        setting('p-pane', 'Pane', 'the Ghostship pane on the right', paneUp, [
+          chip('p-p-open', 'Open', paneUp, () => void setPane($, true)),
+          chip('p-p-min', 'Minimized', !paneUp, () => void setPane($, false)),
         ]),
         withHeads ? heading('p-lh', 'L A U N C H') : null,
         <Box key="p-launch" flexDirection="row" flexWrap="wrap" gap={2}>
@@ -424,7 +424,8 @@ export const register: Register = on => {
     // The band: one card, its border the state at a glance — amber waits on you, green is released, clay is building,
     // grey is idle. Inside: the voyage line, then a STOP waiting or a fresh verdict, then a row per subagent at work.
     let card: unknown = null
-    if (!(await read($, hiddenAtom)) && budget - used >= 1) {
+    // While the panel is open it stands in for the band card (its header carries the stage), so both never overflow the rows.
+    if (!panel && !(await read($, hiddenAtom)) && budget - used >= 1) {
       let snap = await read($, snapAtom)
       if (!snap || !snap.visible) {
         const st = await readState($)

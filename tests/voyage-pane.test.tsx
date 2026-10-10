@@ -21,7 +21,8 @@ function world(on: any, state: string | null, board: string | null = null, evide
   mock.clock(on);
   on("session.start", ($: any, e: any) => ({ cwd: e.cwd }));
   on("command.register", ($: any, e: any) => ({ value: { command: e.name } }));
-  on("ui.open", () => ({ value: { isPlaced: true } }));
+  const opened: string[] = [];
+  on("ui.open", ($: any, e: any) => { opened.push(e.id); return { value: { isPlaced: true } }; });
   on("fs.read", ($: any, e: any) => {
     if (e.path.endsWith("STATE.md") && state !== null) return { value: state };
     if (e.path.endsWith("BOARD.md") && board !== null) return { value: board };
@@ -30,6 +31,7 @@ function world(on: any, state: string | null, board: string | null = null, evide
     return { deny: `ENOENT ${e.path}` };
   });
   on("fs.list", () => ({ value: [] }));
+  return { opened };
 }
 
 describe("the voyage pane body", () => {
@@ -70,22 +72,17 @@ describe("the voyage pane body", () => {
     await shows(ui, "⚠ T002");
   });
 
-  test("– docks the pane into the band and ✕ closes it, and each is remembered", { options: { autoOpen: false } }, async ($, on) => {
-    world(on, STATE);
+  test("– minimizes the pane, and the session never opens it unasked", { options: { autoOpen: false } }, async ($, on) => {
+    const { opened } = world(on, STATE);
     const closed: string[] = [];
-    const store = new Map<string, unknown>();
     on("ui.close", ($: any, e: any) => { closed.push(e.id); return { value: undefined }; });
-    on("store.get", ($: any, e: any) => ({ value: store.get(e.key) }));
-    on("store.set", ($: any, e: any) => { store.set(e.key, e.value); return { value: undefined }; });
     await $.session.start({ surface: "terminal", isInteractive: true, cwd: "/work" });
+    // Only the cleanup of the Overview pane older versions opened; the Ghostship pane waits to be asked for.
+    expect(opened).toEqual([]);
+    expect(closed).toEqual(["ghostship-overview"]);
+
     const ui = await $.ui.mount({ plugin: "ghostship", surface: "terminal", ...PANE });
-
     await ui.press({ key: "pane-dock" });
-    expect(store.get("pane")).toBe("docked");
-    // The first close is the cleanup at session start of the Overview pane older versions opened.
     expect(closed).toEqual(["ghostship-overview", "ghostship-voyage"]);
-
-    await ui.press({ key: "pane-close" });
-    expect(store.get("pane")).toBe("closed");
   });
 });

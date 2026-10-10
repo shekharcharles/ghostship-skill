@@ -20,7 +20,6 @@ declare module 'claude-code' {
       update: { latest: string } | null
       spend: { tokens: number; usd: number; ctxPct: number } | null
       evidence: { task: string; verdict: 'pass' | 'fail' | 'parked'; at: number }[]
-      pane: 'open' | 'docked' | 'closed'  // where the pane is: on the right, minimized into the band, or closed
       filesOpen: boolean       // the pane's FILES section is expanded
       panelOpen: boolean       // the control panel above the prompt is open (◆ Ghostship in the footer)
       boardOpen: boolean       // the voyage pane's BOARD section is expanded
