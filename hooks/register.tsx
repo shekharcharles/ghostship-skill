@@ -2,7 +2,7 @@ import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register } from 'claude-code'
 
 import {
-  VOYAGE, STOP_AFTER, parseState, parseBoard, parseEvidence, setStateField, isUnattended, remainingTasks, voyageOf, curIndexOf,
+  VOYAGE, STOP_AFTER, gateOf, parseState, parseBoard, parseEvidence, setStateField, isUnattended, remainingTasks, voyageOf, curIndexOf,
   progressBar, statusMark, cmpVersion, type GhostshipState, type Task,
 } from './state.ts'
 import type { VoyageSnap } from '../types'
@@ -43,6 +43,8 @@ const cacheChoiceAtom = atom({ plugin: 'ghostship', key: 'cacheChoice' } as cons
 const ledgerAtom = atom({ plugin: 'ghostship', key: 'ledger' } as const, [])
 const projectUsdAtom = atom({ plugin: 'ghostship', key: 'projectUsd' } as const, null)
 // Which model each subagent role runs on; in $.store too, so it holds across sessions.
+// Each task's acceptance check (its gate command), read from tasks/T###*.md; in $.state so it is read once per change.
+const gatesAtom = atom({ plugin: 'ghostship', key: 'gates' } as const, {} as Record<string, string>)
 const paneTabAtom = atom({ plugin: 'ghostship', key: 'paneTab' } as const, 'overview')
 const routingAtom = atom({ plugin: 'ghostship', key: 'routing' } as const, DEFAULT_ROUTING)
 
@@ -215,8 +217,27 @@ async function trackEvidence($: EngineInterface, now: number): Promise<void> {
 let legacyEngine = false
 const LEGACY_HINT = 'this project runs the old Ghostship engine · type /ghostship:ghostship adopt to move it to this plugin'
 
+let gatesKey = ''
+// Reads each task file's gate line when the set of task files changes; a redraw never re-reads them.
+async function loadGates($: EngineInterface): Promise<void> {
+  let names: string[] = []
+  try { names = (await $.fs.list('tasks')).filter(f => f.kind !== 'directory' && /^T\d+.*\.md$/.test(f.name)).map(f => f.name).sort() } catch { return }
+  const key = names.join('|')
+  if (key === gatesKey) return
+  const gates: Record<string, string> = {}
+  for (const name of names) {
+    const id = name.match(/^(T\d+)/)?.[1]
+    if (!id) continue
+    const gate = gateOf(await tryRead($, `tasks/${name}`) ?? '')
+    if (gate) gates[id] = gate
+  }
+  gatesKey = key
+  await update($, gatesAtom, () => gates)
+}
+
 async function publish($: EngineInterface): Promise<void> {
   const st = await readState($)
+  if (st) await loadGates($).catch(() => undefined)
   legacyEngine = !st && (await tryList($)).some(f => f.name === '.ghostship')
   const now = await $.clock.now()
   try { await trackEvidence($, now) } catch { /* evidence is best-effort */ }
@@ -1016,6 +1037,8 @@ export const register: Register = on => {
     )
     // The plan: every phase of the build, its tasks in order, and how many are running, done, to do or on hold.
     const frame = Math.floor(nowMs / SPIN_MS)
+    const gates = await read($, gatesAtom)
+    const latestVerdict = new Map((evidence ?? []).map(v => [v.task, v.verdict] as const))
     const planSection = section('s-plan', 'subtle', (() => {
       const count = (f: (t: Task) => boolean) => board.filter(f).length
       const phases = [...new Set(board.map(t => t.phase))]
@@ -1037,20 +1060,26 @@ export const register: Register = on => {
               <Text color="subtle">{`${done}/${ts.length} done`}</Text>
             </Box>,
             <Text key={`pb-${p}`} color={GS.clay}>{progressBar(done, ts.length, inner)}</Text>,
-            ...ts.map(t => {
+            ...ts.flatMap(t => {
               const run = isBuilding(t)
+              const ev = latestVerdict.get(t.id)
               const mark = run ? SPIN[frame % SPIN.length]! : isBuilt(t) ? '✓' : t.status === 'parked' ? '⚠' : '○'
               const color = isBuilt(t) ? GS.green : run ? GS.clay : t.status === 'parked' ? GS.amber : GS.mist
               const word = isBuilt(t) ? 'done' : run ? (t.status === 'judging' ? 'judging' : 'building') : t.status === 'parked' ? 'on hold' : 'to do'
-              return (
+              return [
                 <Box key={`pt-${t.id}`} flexDirection="row" justifyContent="space-between" gap={1}>
                   <Box flexShrink={1} minWidth={0}>
                     <Text color={color} bold={run}>{`${mark} `}</Text>
                     <Text wrap="truncate-end">{`${t.id}  `}<Text color="subtle">{t.label}</Text></Text>
                   </Box>
                   <Box flexShrink={0}><Text color={color}>{word}</Text></Box>
-                </Box>
-              )
+                </Box>,
+                // The acceptance check that proves the task, and the latest verdict the judge recorded for it.
+                <Box key={`pc-${t.id}`} flexDirection="row" gap={1}>
+                  <Text color="subtle" wrap="truncate-end">{`   check  ${gates[t.id] ?? 'none recorded'}`}</Text>
+                  {ev ? <Text color={ev === 'pass' ? 'success' : ev === 'fail' ? 'error' : 'warning'} wrap="truncate-end">{ev === 'pass' ? '✓ verified' : ev === 'fail' ? '✗ failed' : '⚠ parked'}</Text> : null}
+                </Box>,
+              ]
             }),
           ]
         }) : [<Text key="pl-none" dimColor>No plan yet: the tasks appear here once the plan is written.</Text>]),

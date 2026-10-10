@@ -138,3 +138,10 @@ export function isUnattended(st: GhostshipState | null): boolean {
 export function remainingTasks(tasks: Task[]): Task[] {
   return tasks.filter(t => !['done', 'merged', 'parked'].includes(t.status))
 }
+
+/** A task file's acceptance check: the line that names its gate command (`gate: …`, `Gate command: …`, `checks: …`), or null. */
+export function gateOf(text: string): string | null {
+  const m = text.match(/^\s*(?:[-*]\s*)?(?:\*\*)?(gate(?: command)?|test command|checks?)(?:\*\*)?\s*:\s*(?:\*\*)?\s*(.+?)\s*$/im)
+  const v = m?.[2]?.replace(/^`|`$/g, '').trim()
+  return v && v !== '[]' ? v : null
+}

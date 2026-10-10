@@ -102,3 +102,12 @@ test("remainingTasks leaves out done, merged and parked", () => {
   const b = parseBoard("| T001 | 1 | done | a |\n| T002 | 1 | todo | b |\n| T003 | 2 | judging | c |\n| T004 | 2 | parked | d |\n| T005 | 2 | merged | e |");
   expect(remainingTasks(b).map(t => t.id)).toEqual(["T002", "T003"]);
 });
+
+import { gateOf } from "../hooks/state.ts";
+
+test("gateOf: a task file's check line, or null", () => {
+  expect(gateOf("# T001\n\n**Gate command:** `npm test -- done.test.mjs`\n")).toBe("npm test -- done.test.mjs");
+  expect(gateOf("gate: pytest -q tests/t1.py\n")).toBe("pytest -q tests/t1.py");
+  expect(gateOf("checks: []\n")).toBe(null);
+  expect(gateOf("nothing here\n")).toBe(null);
+});

@@ -37,6 +37,7 @@ declare module 'claude-code' {
       projectUsd: number | null                          // every session of this project together (from $.store)
       cacheTtl: '5m' | '1h' | null       // the cache lifetime the engine last reported (a model switch carries it)
       cacheChoice: '5m' | '1h' | null     // the cache lifetime the owner picked in the ◆ Ghostship menu (overrides the above)
+      gates: Record<string, string>          // each task's acceptance check (its gate command), keyed by task id
       paneTab: 'overview' | 'plan' | 'agents' | 'cost' | 'files'  // the pane's open tab
       boardOpen: boolean      // the voyage pane's BOARD section is expanded
       recorderOpen: boolean    // the voyage pane's RECORDER section is expanded
