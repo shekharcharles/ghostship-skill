@@ -106,3 +106,32 @@ export function releaseBlockers(text) {
   for (const [key, e] of latest) if (e.status === 'unverified') blockers.push(`${key.split(':')[0]}: ${key.split(':')[1]} was not verified (${e.reason ?? 'could not run'})`)
   return blockers
 }
+
+/** Paths that are tests: a test directory, a `.test.`/`.spec.` file, or a Python test module. */
+export const TEST_PATH = /(^|\/)(tests?|__tests__|spec)\/|\.(test|spec)\.[a-z]+$|(^|\/)test_[^/]*\.py$|_test\.(py|go)$/
+
+/** The paths in `git status --porcelain` output that are not tests: source changed before its repro. */
+export function nonTestChanges(porcelain) {
+  return String(porcelain ?? '')
+    .split('\n')
+    .filter(Boolean)
+    .map(l => l.slice(3).trim().replace(/^"|"$/g, ''))
+    .filter(p => p && !TEST_PATH.test(p))
+}
+
+const squash = s => s.replace(/\s+/g, '')
+
+/**
+ * Assertions whose expected value is the same expression as the value under test (`expect(add(2,2)).toBe(add(2,2))`,
+ * `assert f(x) == f(x)`): they pass by construction and prove nothing. Returns the lines that do.
+ */
+export function tautologies(text) {
+  const hits = []
+  text.split('\n').forEach((line, i) => {
+    const js = line.match(/expect\((.+?)\)\.(?:toBe|toEqual|toStrictEqual)\((.+?)\)\s*;?\s*$/)
+    if (js && squash(js[1]) === squash(js[2]) && squash(js[1]).length > 0) hits.push({ line: i + 1, text: line.trim() })
+    const py = line.match(/^\s*assert\s+(.+?)\s*==\s*(.+?)\s*$/)
+    if (py && squash(py[1]) === squash(py[2])) hits.push({ line: i + 1, text: line.trim() })
+  })
+  return hits
+}

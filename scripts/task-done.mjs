@@ -6,7 +6,7 @@
 import { spawnSync } from 'node:child_process'
 import { appendFileSync, mkdirSync, readFileSync, existsSync } from 'node:fs'
 import path from 'node:path'
-import { cannotRun, countTests, verdictOf, failedAttempts, nextAttempt } from './gate-verdict.mjs'
+import { cannotRun, countTests, verdictOf, failedAttempts, nextAttempt, nonTestChanges, tautologies } from './gate-verdict.mjs'
 
 function readLedgerLines(text) {
   return text.split('\n').filter(Boolean).flatMap(l => { try { return [JSON.parse(l)] } catch { return [] } })
@@ -32,6 +32,28 @@ function main(argv) {
     return 1
   }
   if (loop.fresh) console.log(`${task}: ${loop.note}`)
+  // Red comes first: the repro is recorded before any source changes.
+  const status = spawnSync('git', ['status', '--porcelain', '-uall'], { cwd: root, encoding: 'utf8' }).stdout ?? ''
+  if (phase === 'red') {
+    const early = nonTestChanges(status)
+    if (early.length) {
+      console.error(`${task} red: refused — source changed before its repro: ${early.join(', ')}. Write the failing test first.`)
+      return 1
+    }
+  }
+  // A test must test something: a changed test whose expected value is the value under test is refused.
+  if (phase === 'green') {
+    const testFiles = status.split('\n').filter(Boolean).map(l => l.slice(3).trim()).filter(p => /(^|\/)(tests?|__tests__|spec)\/|\.(test|spec)\.[a-z]+$|(^|\/)test_[^/]*\.py$|_test\.(py|go)$/.test(p))
+    for (const f of testFiles) {
+      let text = ''
+      try { text = readFileSync(path.join(root, f), 'utf8') } catch { continue }
+      const hits = tautologies(text)
+      if (hits.length) {
+        console.error(`${task} green: refused — tautological test in ${f} line ${hits[0].line}: ${hits[0].text}`)
+        return 1
+      }
+    }
+  }
   const evidencePath = path.join(root, 'docs/ghostship/EVIDENCE.md')
   mkdirSync(path.dirname(ledgerPath), { recursive: true })
   const run = spawnSync('sh', ['-c', command], { cwd: root, encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 })

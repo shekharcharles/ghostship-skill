@@ -83,3 +83,19 @@ describe("unknown is not a pass", () => {
   });
 });
 
+
+import { nonTestChanges, tautologies } from "../scripts/gate-verdict.mjs";
+
+describe("the repro comes first, and a test must test something", () => {
+  test("source changed before the repro is named; test changes are not", () => {
+    const status = " M src/add.js\n?? tests/add.test.js\n M docs/x.md";
+    expect(nonTestChanges(status)).toEqual(["src/add.js", "docs/x.md"]);
+    expect(nonTestChanges("")).toEqual([]);
+  });
+  test("a test whose expected value is the value under test is a tautology; a real one is not", () => {
+    expect(tautologies("expect(add(2, 2)).toBe(add(2,2));")).toEqual([{ line: 1, text: "expect(add(2, 2)).toBe(add(2,2));" }]);
+    expect(tautologies("expect(add(2, 2)).toBe(4);")).toEqual([]);
+    expect(tautologies("assert f(x) == f(x)")).toHaveLength(1);
+    expect(tautologies("assert f(x) == 3")).toEqual([]);
+  });
+});
