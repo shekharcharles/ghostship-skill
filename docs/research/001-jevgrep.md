@@ -1,0 +1,11 @@
+# 001 · jevgrep (dzhng)
+- Link: https://github.com/dzhng/jevgrep (MIT, commit 703aba1)
+- Why it was looked at: the owner asked to install and use it for repository questions.
+- Date and where it was read: 2026-10-11, installed for this session; no round or task yet.
+- What it contains: `jg`, a CLI that answers "where/how does X work" questions by asking a model (TypeSafe provider) which files and source excerpts are relevant. A Claude Code skill (`jevgrep`) tells agents to start behavioural discovery with `jg`.
+- Adopted: installed the CLI (`@dzhng/jevgrep` 0.8.0), the TypeSafe provider (`jg auth --provider typesafe --stdin`, key read from stdin), and the user-level Claude Code skill (`jg skill --global --yes`).
+- Where it lives in the app: not in the app. It is a developer tool on the machine.
+- How the app uses it: agents ask `jg "<question>" <folder>` for behaviour questions, and use grep for exact symbols.
+- Not adopted: nothing yet.
+- Licence and credit: MIT. No code copied.
+- Privacy: each search sends eligible source files to the TypeSafe service. Do not run it on private code without the owner's say-so.
