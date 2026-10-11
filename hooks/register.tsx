@@ -11,7 +11,7 @@ import { GS, clock, fmtTokens } from './lib.ts'
 import { appEntries, appIdentity } from './overview.ts'
 import { fitAgents, roleOf, type Running } from './agents.ts'
 import { activityOf, partialArgsOf, thoughtOf, wordsAdded } from './activity.ts'
-import { DELETE_REFUSED, DONE_NEEDS_PROOF, RELEASE_NEEDS_PROOF, boardHasTasks, doneNotInLedger, gateRecordCommand, isLedgerPath, releaseCommand, resumeFrom, riskyDelete, unprovenDone } from './guard.ts'
+import { DELETE_REFUSED, DONE_NEEDS_PROOF, RELEASE_NEEDS_PROOF, boardHasTasks, doneNotInLedger, fixLoopRefusal, gateRecordCommand, isLedgerPath, releaseCommand, resumeFrom, riskyDelete, unprovenDone } from './guard.ts'
 import { WORDMARK, WORDMARK_WIDTH } from './art.ts'
 import { capReached, missingForLive } from './state.ts'
 import { RUFLO } from './lib.ts'
@@ -30,6 +30,7 @@ const STATE_FILE = 'docs/ghostship/STATE.md'
 const BOARD_FILE = 'docs/ghostship/BOARD.md'
 const LEDGER_FILE = 'docs/ghostship/LEDGER.jsonl'
 const SITEMAP_FILE = 'docs/ghostship/SITEMAP.md'
+const DECISIONS_FILE = 'docs/ghostship/DECISIONS.md'
 const EVIDENCE_FILE = 'docs/ghostship/EVIDENCE.md'
 
 const snapAtom = atom({ plugin: 'ghostship', key: 'snap' } as const, null)
@@ -879,6 +880,12 @@ export const register: Register = on => {
         if (why) {
           await noteEvent($, `Refused a gate record: ${why}.`, 'bad')
           return { deny: `Ghostship: ${why}. Hand the run to the right subagent.` }
+        }
+        // The fix loop: four failures on a task, and no ruling, stop it.
+        const loopWhy = fixLoopRefusal(cmd, (await tryRead($, LEDGER_FILE)) ?? '', (await tryRead($, DECISIONS_FILE)) ?? '')
+        if (loopWhy) {
+          await noteEvent($, `Refused: ${loopWhy}.`, 'bad')
+          return { deny: `Ghostship: ${loopWhy}.` }
         }
       }
     }

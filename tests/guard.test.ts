@@ -88,3 +88,13 @@ test("a done row needs a verifier's pass, and only a gate command records runs",
   expect(gateRecordCommand("npm test").recordsRun).toBe(false);
 });
 
+import { fixLoopRefusal } from "../hooks/guard.ts";
+
+test("the mod refuses a fourth failure's retry until a ruling exists", () => {
+  const fails = Array.from({ length: 4 }, () => JSON.stringify({ task: "T001", phase: "green", recorded: false })).join("\n");
+  expect(fixLoopRefusal("node scripts/task-done.mjs green T001 . -- x", fails, "")).toMatch(/no ruling/);
+  expect(fixLoopRefusal("node scripts/task-done.mjs green T001 . -- x", fails, "Ruling: T001 — park it")).toBe(null);
+  expect(fixLoopRefusal("node scripts/task-done.mjs green T002 . -- x", fails, "")).toBe(null);
+  expect(fixLoopRefusal("npm test", fails, "")).toBe(null);
+});
+

@@ -47,3 +47,18 @@ test("a verifier pass needs a green before it and at least one check run", () =>
   expect(verdictOf({ phase: "verify", exitCode: 2, tests: 4, hasRed: true, hasGreen: true }).ok).toBe(false);
 });
 
+
+import { failedAttempts, nextAttempt } from "../scripts/gate-verdict.mjs";
+
+describe("the fix loop is bounded", () => {
+  test("failures count; the third calls a fresh implementer; the fourth needs a ruling", () => {
+    const fail = { task: "T001", phase: "green", recorded: false };
+    const entries = [fail, fail, { task: "T001", phase: "verify", recorded: false }];
+    expect(failedAttempts(entries, "T001")).toBe(3);
+    expect(nextAttempt(2, false)).toEqual({ ok: true, fresh: false });
+    expect(nextAttempt(3, false).fresh).toBe(true);
+    expect(nextAttempt(4, false).ok).toBe(false);
+    expect(nextAttempt(4, true).ok).toBe(true);
+    expect(failedAttempts([{ task: "T001", phase: "red", recorded: false }], "T001")).toBe(0);
+  });
+});

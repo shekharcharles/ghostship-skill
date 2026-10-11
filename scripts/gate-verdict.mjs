@@ -57,3 +57,23 @@ export function resumePlan(entries) {
 export function ledgerProves(entries, task) {
   return entries.some(e => e.task === task && e.phase === 'green' && e.recorded)
 }
+
+/** How many attempts the builder gets before a fresh implementer, and how many before a ruling is required. */
+export const FRESH_AFTER = 3
+export const RULING_AFTER = 4
+
+/** Failed attempts for a task: a green or verify run that did not pass. A red that passes is a refused record, not an attempt. */
+export function failedAttempts(entries, task) {
+  return entries.filter(e => e.task === task && !e.recorded && (e.phase === 'green' || e.phase === 'verify')).length
+}
+
+/** What the next run of a task may do: ok, whether it must be a fresh implementer, and whether it is refused until a ruling exists. */
+export function nextAttempt(failed, hasRuling) {
+  if (failed >= RULING_AFTER && !hasRuling) {
+    return { ok: false, why: `${failed} failed attempts and no ruling: write "Ruling: <task> — what, why, cost if wrong" in DECISIONS.md before any more runs` }
+  }
+  if (failed >= FRESH_AFTER && failed < RULING_AFTER) {
+    return { ok: true, fresh: true, note: 'fresh implementer on a stronger model: the builder has failed three times' }
+  }
+  return { ok: true, fresh: false }
+}

@@ -6,7 +6,11 @@
 import { spawnSync } from 'node:child_process'
 import { appendFileSync, mkdirSync, readFileSync, existsSync } from 'node:fs'
 import path from 'node:path'
-import { countTests, verdictOf } from './gate-verdict.mjs'
+import { countTests, verdictOf, failedAttempts, nextAttempt } from './gate-verdict.mjs'
+
+function readLedgerLines(text) {
+  return text.split('\n').filter(Boolean).flatMap(l => { try { return [JSON.parse(l)] } catch { return [] } })
+}
 
 function main(argv) {
   const sep = argv.indexOf('--')
@@ -18,6 +22,16 @@ function main(argv) {
   }
   const root = path.resolve(folder)
   const ledgerPath = path.join(root, 'docs/ghostship/LEDGER.jsonl')
+  const decisionsPath = path.join(root, 'docs/ghostship/DECISIONS.md')
+  // The fix loop: after four failed attempts a task runs again only with a ruling in DECISIONS.md.
+  const before = existsSync(ledgerPath) ? readLedgerLines(readFileSync(ledgerPath, 'utf8')) : []
+  const hasRuling = existsSync(decisionsPath) && readFileSync(decisionsPath, 'utf8').includes(`Ruling: ${task}`)
+  const loop = nextAttempt(failedAttempts(before, task), hasRuling)
+  if (!loop.ok) {
+    console.error(`${task} ${phase}: refused — ${loop.why}`)
+    return 1
+  }
+  if (loop.fresh) console.log(`${task}: ${loop.note}`)
   const evidencePath = path.join(root, 'docs/ghostship/EVIDENCE.md')
   mkdirSync(path.dirname(ledgerPath), { recursive: true })
   const run = spawnSync('sh', ['-c', command], { cwd: root, encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 })

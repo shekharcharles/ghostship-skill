@@ -99,3 +99,22 @@ export function gateRecordCommand(command: string): { recordsRun: boolean; phase
   return { recordsRun: !!m, phase: m ? m[1]! : null }
 }
 
+/**
+ * The fix loop, as the mod sees it: a gate run for a task that has failed four times is refused until DECISIONS.md holds a ruling
+ * for it. The count and the rule are the same as scripts/gate-verdict.mjs; the mod checks the command before it runs.
+ */
+export function fixLoopRefusal(command: string, ledgerText: string, decisionsText: string): string | null {
+  const m = command.match(/task-done\.mjs\s+(red|green|verify)\s+(T\d+)\b/)
+  if (!m) return null
+  const task = m[2]!
+  let failed = 0
+  for (const line of ledgerText.split('\n')) {
+    try {
+      const e = JSON.parse(line) as { task?: string; phase?: string; recorded?: boolean }
+      if (e.task === task && e.recorded === false && (e.phase === 'green' || e.phase === 'verify')) failed += 1
+    } catch { /* skipped */ }
+  }
+  const ruled = decisionsText.includes(`Ruling: ${task}`)
+  return failed >= 4 && !ruled ? `${task} has failed ${failed} times with no ruling: write "Ruling: ${task} — what, why, cost if wrong" in DECISIONS.md first` : null
+}
+
