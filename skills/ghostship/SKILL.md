@@ -52,6 +52,7 @@ interview ─▶ PRD.md ─▶ spec.md ─(STOP 1)─▶ plan.md ─▶ tasks/T#
    - **Shipped / parked:** what works now, and each parked task with its reason.
    - **Live proof:** the live run against the lab, its date, the cost and the findings it reported against the lab's known list. A capability without a live pass is listed as unproven.
    - **Built, not just done:** every task, each `built` with its `e2e:` line, or listed as `unproven` with what is missing. A release with unproven tasks is not green: report it, do not tag it.
+   - **Release gate counts built tasks:** the mod refuses `git tag`, `gh release create` and `npm publish` while any task is done without its red and end-to-end proof. Done means built here; parked tasks are listed with their reason.
    - **Release gate:** full suite green, every criterion `pass` or `parked`, README/docs describe what shipped. Fix what you can; a green gate ships automatically, a red gate does not ship and is reported with what is blocking it.
    - **Decisions:** every item in `DECISIONS.md`, each with its options and your recommendation.
    Then **tag the release and report** — do not ask the owner to approve it. The report lists every auto-applied decision (recommended option taken, with its reason) and every parked task. A decision that rewrote an acceptance criterion is called out at the top and was routed through `/ghostship change` (re-approve that criterion, rebuild only its tasks) before tagging.

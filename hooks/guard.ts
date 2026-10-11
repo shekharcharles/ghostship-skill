@@ -40,3 +40,12 @@ export function unprovenDone(boardEdit: string, evidence: string): string[] {
 
 export const DONE_NEEDS_PROOF = 'Ghostship: a task cannot be marked done until its evidence shows a red run (the failing test, first) and an end-to-end run. ' +
   'Record both in docs/ghostship/EVIDENCE.md for that task, then mark it done on the board.'
+
+/** Whether a shell command tags or publishes a release: `git tag`, `gh release create`, `npm publish`. */
+export function releaseCommand(command: string): boolean {
+  return command.split(/&&|\|\||;|\||\n/).some(part => /^\s*(git\s+tag\b|gh\s+release\s+create\b|npm\s+publish\b)/.test(part))
+}
+
+export const RELEASE_NEEDS_PROOF = 'Ghostship: the release is not tagged while any task is not built. Build the tasks that are not proven ' +
+  '(red, then green, then end to end) or mark them parked with the reason, then tag.'
+

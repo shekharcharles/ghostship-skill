@@ -34,3 +34,14 @@ describe("a task is marked done only with its red and end-to-end proof", () => {
     expect(unprovenDone("| T003 | Name | 1 | judging | A3 |", "")).toEqual([]);
   });
 });
+
+import { releaseCommand } from "../hooks/guard.ts";
+
+test("a release tag or publish is recognised; ordinary commands are not", () => {
+  expect(releaseCommand("git commit -m x && git tag v1.0.0")).toBe(true);
+  expect(releaseCommand("gh release create v1.0.0 --notes x")).toBe(true);
+  expect(releaseCommand("npm publish")).toBe(true);
+  expect(releaseCommand("git commit -m 'tag the fix'")).toBe(false);
+  expect(releaseCommand("npm test")).toBe(false);
+});
+

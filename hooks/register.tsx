@@ -11,7 +11,7 @@ import { GS, clock, fmtTokens } from './lib.ts'
 import { appEntries, appIdentity } from './overview.ts'
 import { fitAgents, roleOf, type Running } from './agents.ts'
 import { activityOf, partialArgsOf, thoughtOf, wordsAdded } from './activity.ts'
-import { DELETE_REFUSED, DONE_NEEDS_PROOF, riskyDelete, unprovenDone } from './guard.ts'
+import { DELETE_REFUSED, DONE_NEEDS_PROOF, RELEASE_NEEDS_PROOF, releaseCommand, riskyDelete, unprovenDone } from './guard.ts'
 import { WORDMARK, WORDMARK_WIDTH } from './art.ts'
 import { capReached, missingForLive } from './state.ts'
 import { RUFLO } from './lib.ts'
@@ -842,6 +842,15 @@ export const register: Register = on => {
           await noteEvent($, `Refused: ${bad.join(', ')} marked done with no red or end-to-end proof.`, 'bad')
           return { deny: `${DONE_NEEDS_PROOF} Not yet proven: ${bad.join(', ')}.` }
         }
+      }
+    }
+    // A release is tagged only when every task marked done is built: the gate counts built tasks, not done ones.
+    if (e.tool === 'Bash' && releaseCommand(String((e as unknown as { input?: { command?: unknown } }).input?.command ?? ''))) {
+      const board = (await tryRead($, BOARD_FILE)) ?? ''
+      const unproven = unprovenDone(board, (await tryRead($, EVIDENCE_FILE)) ?? '')
+      if (unproven.length) {
+        await noteEvent($, `Release refused: ${unproven.length} task(s) not built yet (${unproven.slice(0, 6).join(', ')}).`, 'bad')
+        return { deny: `${RELEASE_NEEDS_PROOF} Not built: ${unproven.join(', ')}.` }
       }
     }
     // A delete that could remove more than it names is refused at once: the agent gets the reason and goes on, nothing waits.
