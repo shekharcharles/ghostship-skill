@@ -54,3 +54,36 @@ export const RELEASE_NEEDS_PROOF = 'Ghostship: the release is not tagged while a
 export function boardHasTasks(board: string): boolean {
   return /^\s*\|\s*T\d+\s*\|/m.test(board)
 }
+
+/** The tasks a board edit marks done that the ledger does not prove with a recorded green. The ledger is the record; EVIDENCE.md is a copy. */
+export function doneNotInLedger(boardEdit: string, ledgerText: string): string[] {
+  // The ledger's rules live in scripts/gate-verdict.mjs; the same parse runs in the mod and in the gate script.
+  const greens = new Set<string>()
+  for (const line of ledgerText.split('\n')) {
+    try { const e = JSON.parse(line) as { task?: string; phase?: string; recorded?: boolean }; if (e.phase === 'green' && e.recorded && e.task) greens.add(e.task) } catch { /* skipped */ }
+  }
+  const done = [...boardEdit.matchAll(/^\s*\|\s*(T\d+)\s*\|[^\n]*\|\s*(?:done|merged)\s*\|/gim)].map(m => m[1]!)
+  return [...new Set(done)].filter(id => !greens.has(id))
+}
+
+/** Whether a path is the ledger: it is written only by the gate script, never by an edit. */
+export function isLedgerPath(path: string): boolean {
+  return path.endsWith('docs/ghostship/LEDGER.jsonl')
+}
+
+/** A resume's summary read from the ledger text: verified tasks stay verified, tasks with only a red resume at green. */
+export function resumeFrom(ledgerText: string): { verified: number; inProgress: number; damaged: number } {
+  const greens = new Set<string>()
+  const reds = new Set<string>()
+  let damaged = 0
+  for (const line of ledgerText.split('\n')) {
+    if (!line.trim()) continue
+    try {
+      const e = JSON.parse(line) as { task?: string; phase?: string; recorded?: boolean }
+      if (e.recorded && e.task && e.phase === 'green') greens.add(e.task)
+      if (e.recorded && e.task && e.phase === 'red') reds.add(e.task)
+    } catch { damaged += 1 }
+  }
+  return { verified: greens.size, inProgress: [...reds].filter(t => !greens.has(t)).length, damaged }
+}
+

@@ -22,3 +22,31 @@ export function verdictOf({ phase, exitCode, tests, hasRed }) {
   }
   return { ok: false, why: `unknown phase "${phase}"` }
 }
+
+/** The ledger's lines, parsed. A line that does not parse is skipped, and is reported as `damaged` so resume can say so. */
+export function readLedger(text) {
+  const entries = []
+  let damaged = 0
+  for (const line of String(text ?? '').split('\n')) {
+    if (!line.trim()) continue
+    try { entries.push(JSON.parse(line)) } catch { damaged += 1 }
+  }
+  return { entries, damaged }
+}
+
+/**
+ * Where a resumed build stands, from the ledger alone: tasks with a recorded green are done and must not be re-dispatched;
+ * tasks with only a recorded red resume at green; nothing else is trusted.
+ */
+export function resumePlan(entries) {
+  const greens = new Set(entries.filter(e => e.phase === 'green' && e.recorded).map(e => e.task))
+  const reds = new Set(entries.filter(e => e.phase === 'red' && e.recorded).map(e => e.task))
+  const verified = [...greens].sort()
+  const inProgress = [...reds].filter(t => !greens.has(t)).sort()
+  return { verified, inProgress, refused: entries.filter(e => !e.recorded).length }
+}
+
+/** Whether the ledger holds a recorded green for a task: the only proof the board's done may rest on. */
+export function ledgerProves(entries, task) {
+  return entries.some(e => e.task === task && e.phase === 'green' && e.recorded)
+}

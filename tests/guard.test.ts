@@ -53,3 +53,26 @@ test("an empty or unreadable board cannot pass the release gate", () => {
   expect(boardHasTasks("| T001 | Name | 1 | done | A1 |")).toBe(true);
 });
 
+
+import { doneNotInLedger, isLedgerPath } from "../hooks/guard.ts";
+
+test("a done row needs a green in the ledger, and the ledger file is not hand-editable", () => {
+  const ledger = JSON.stringify({ task: "T001", phase: "green", recorded: true });
+  expect(doneNotInLedger("| T001 | n | 1 | done | A1 |", ledger)).toEqual([]);
+  expect(doneNotInLedger("| T002 | n | 1 | done | A2 |", ledger)).toEqual(["T002"]);
+  expect(isLedgerPath("/work/docs/ghostship/LEDGER.jsonl")).toBe(true);
+  expect(isLedgerPath("/work/docs/ghostship/EVIDENCE.md")).toBe(false);
+});
+
+import { resumeFrom } from "../hooks/guard.ts";
+
+test("a resume summary counts verified and in-progress tasks from the ledger", () => {
+  const ledger = [
+    JSON.stringify({ task: "T001", phase: "red", recorded: true }),
+    JSON.stringify({ task: "T001", phase: "green", recorded: true }),
+    JSON.stringify({ task: "T002", phase: "red", recorded: true }),
+    "broken",
+  ].join("\n");
+  expect(resumeFrom(ledger)).toEqual({ verified: 1, inProgress: 1, damaged: 1 });
+});
+

@@ -11,7 +11,7 @@ import { GS, clock, fmtTokens } from './lib.ts'
 import { appEntries, appIdentity } from './overview.ts'
 import { fitAgents, roleOf, type Running } from './agents.ts'
 import { activityOf, partialArgsOf, thoughtOf, wordsAdded } from './activity.ts'
-import { DELETE_REFUSED, DONE_NEEDS_PROOF, RELEASE_NEEDS_PROOF, boardHasTasks, releaseCommand, riskyDelete, unprovenDone } from './guard.ts'
+import { DELETE_REFUSED, DONE_NEEDS_PROOF, RELEASE_NEEDS_PROOF, boardHasTasks, doneNotInLedger, isLedgerPath, releaseCommand, resumeFrom, riskyDelete, unprovenDone } from './guard.ts'
 import { WORDMARK, WORDMARK_WIDTH } from './art.ts'
 import { capReached, missingForLive } from './state.ts'
 import { RUFLO } from './lib.ts'
@@ -28,6 +28,7 @@ import { DEFAULT_ROUTING, ROLES, TIERS, agentLabel, cleanRouting, judgeRetry, mo
 const PANE = 'ghostship-voyage'
 const STATE_FILE = 'docs/ghostship/STATE.md'
 const BOARD_FILE = 'docs/ghostship/BOARD.md'
+const LEDGER_FILE = 'docs/ghostship/LEDGER.jsonl'
 const EVIDENCE_FILE = 'docs/ghostship/EVIDENCE.md'
 
 const snapAtom = atom({ plugin: 'ghostship', key: 'snap' } as const, null)
@@ -678,6 +679,11 @@ export const register: Register = on => {
     // The band above the prompt is the only live line; clear any status line an older version pinned.
     try { $.ui.status(undefined) } catch { /* no status line */ }
     try { await publish($) } catch { /* the render falls back to a direct read */ }
+    // A resume reads the ledger: what is verified stays verified, and only the rest is worked on.
+    try {
+      const r = resumeFrom((await tryRead($, LEDGER_FILE)) ?? '')
+      if (r.verified || r.inProgress) await noteEvent($, `Resumed from the ledger: ${r.verified} verified, ${r.inProgress} in progress${r.damaged ? `, ${r.damaged} damaged line(s) skipped` : ''}.`, r.damaged ? 'warn' : 'ok')
+    } catch { /* no ledger yet */ }
     // Versions before 0.4.7 opened a second pane, the Overview; it is folded into the one pane now, so close any left open.
     try { await $.ui.close({ id: 'ghostship-overview' }) } catch { /* none open */ }
     // Live refresh: the snapshot every 1.5 s, and a redraw of the band and panes every second.
@@ -861,9 +867,14 @@ export const register: Register = on => {
     // A task cannot be marked done on the board without its red and end-to-end proof in the evidence file.
     if (e.tool === 'Edit' || e.tool === 'Write' || e.tool === 'MultiEdit') {
       const input = (e as unknown as { input?: { file_path?: unknown; new_string?: unknown; content?: unknown; edits?: { new_string?: unknown }[] } }).input ?? {}
+      // The ledger is written only by the gate script: an edit to it is refused.
+      if (typeof input.file_path === 'string' && isLedgerPath(input.file_path)) {
+        await noteEvent($, 'Refused an edit to LEDGER.jsonl: the ledger is written only by the gate script.', 'bad')
+        return { deny: 'Ghostship: LEDGER.jsonl is written only by scripts/task-done.mjs, never by an edit. Run the gate command for the task instead.' }
+      }
       if (typeof input.file_path === 'string' && input.file_path.endsWith('docs/ghostship/BOARD.md')) {
         const written = [input.new_string, input.content, ...(input.edits ?? []).map(x => x.new_string)].filter((x): x is string => typeof x === 'string').join('\n')
-        const bad = unprovenDone(written, (await tryRead($, EVIDENCE_FILE)) ?? '')
+        const bad = [...new Set([...unprovenDone(written, (await tryRead($, EVIDENCE_FILE)) ?? ''), ...doneNotInLedger(written, (await tryRead($, LEDGER_FILE)) ?? '')])]
         if (bad.length) {
           await noteEvent($, `Refused: ${bad.join(', ')} marked done with no red or end-to-end proof.`, 'bad')
           return { deny: `${DONE_NEEDS_PROOF} Not yet proven: ${bad.join(', ')}.` }
