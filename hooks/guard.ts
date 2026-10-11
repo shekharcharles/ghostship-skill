@@ -49,3 +49,8 @@ export function releaseCommand(command: string): boolean {
 export const RELEASE_NEEDS_PROOF = 'Ghostship: the release is not tagged while any task is not built. Build the tasks that are not proven ' +
   '(red, then green, then end to end) or mark them parked with the reason, then tag.'
 
+
+/** Whether a board has any task rows. An empty board is no evidence that nothing is unbuilt, so the release gate refuses it. */
+export function boardHasTasks(board: string): boolean {
+  return /^\s*\|\s*T\d+\s*\|/m.test(board)
+}

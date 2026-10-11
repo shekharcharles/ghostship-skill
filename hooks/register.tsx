@@ -11,7 +11,7 @@ import { GS, clock, fmtTokens } from './lib.ts'
 import { appEntries, appIdentity } from './overview.ts'
 import { fitAgents, roleOf, type Running } from './agents.ts'
 import { activityOf, partialArgsOf, thoughtOf, wordsAdded } from './activity.ts'
-import { DELETE_REFUSED, DONE_NEEDS_PROOF, RELEASE_NEEDS_PROOF, releaseCommand, riskyDelete, unprovenDone } from './guard.ts'
+import { DELETE_REFUSED, DONE_NEEDS_PROOF, RELEASE_NEEDS_PROOF, boardHasTasks, releaseCommand, riskyDelete, unprovenDone } from './guard.ts'
 import { WORDMARK, WORDMARK_WIDTH } from './art.ts'
 import { capReached, missingForLive } from './state.ts'
 import { RUFLO } from './lib.ts'
@@ -873,6 +873,8 @@ export const register: Register = on => {
     // A release is tagged only when every task marked done is built: the gate counts built tasks, not done ones.
     if (e.tool === 'Bash' && releaseCommand(String((e as unknown as { input?: { command?: unknown } }).input?.command ?? ''))) {
       const board = (await tryRead($, BOARD_FILE)) ?? ''
+      // An unreadable or empty board would read as "nothing unbuilt": refuse rather than pass.
+      if (!boardHasTasks(board)) return { deny: `${RELEASE_NEEDS_PROOF} The board has no tasks to check, so the gate cannot pass.` }
       const unproven = unprovenDone(board, (await tryRead($, EVIDENCE_FILE)) ?? '')
       if (unproven.length) {
         await noteEvent($, `Release refused: ${unproven.length} task(s) not built yet (${unproven.slice(0, 6).join(', ')}).`, 'bad')

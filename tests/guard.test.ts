@@ -45,3 +45,11 @@ test("a release tag or publish is recognised; ordinary commands are not", () => 
   expect(releaseCommand("npm test")).toBe(false);
 });
 
+import { boardHasTasks } from "../hooks/guard.ts";
+
+test("an empty or unreadable board cannot pass the release gate", () => {
+  expect(boardHasTasks("")).toBe(false);
+  expect(boardHasTasks("# Board\n\n| Task | Phase |\n|--|--|\n")).toBe(false);
+  expect(boardHasTasks("| T001 | Name | 1 | done | A1 |")).toBe(true);
+});
+

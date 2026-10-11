@@ -198,6 +198,14 @@ Not everything is unit-testable, and "it builds" is not "it works". Judge the pr
 
 Hold every subagent to a contract. **Reject and redeploy any subagent that reports a conclusion without evidence** (real run output, test output, file paths, diffs).
 
+**Return contract (every builder and judge):**
+- every claim names its file, line and the matched text;
+- a closing section lists **decisions the brief did not cover**, so you can decide them instead of guessing;
+- only you, the orchestrator, write `BOARD.md`, `STATE.md`, `EVIDENCE.md` and `DECISIONS.md`. Subagents return their results; you write them down. Parallel subagents never share a bookkeeping file;
+- you spot-check each finding with one grep before you record it.
+
+**Two violations of one rule mean the rule is not enforced yet.** If the same rule is broken twice, stop rewording it: say which barrier is missing (a mod refusal, a script that is the only write path) and add it.
+
 **Models.** You (the orchestrator) stay on the session's model. Name each subagent by its role, its task id and the task's name, in the Agent call's description: `Builder T024 — Prove steering stays signed` or `Judge T024 — Prove steering stays signed`, and send codebase searches and reading to the `Explore` agent: the Ghostship mod then runs searches and reading on Haiku and builders and judges on Sonnet, or whatever the owner set in the pane's ROUTING card. Do not pass `model` yourself. Always put the task id and name in a judge's description (`Judge T005 — …`): a judge of a task that already failed once runs on Opus.
 
 ### Builder Contract — Think → Write → Test → Review
