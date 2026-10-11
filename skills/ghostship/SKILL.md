@@ -148,6 +148,10 @@ The owner can talk to you at any time, and the builders keep running. Answer, di
 - **When the owner says apply:** bump `PRD.md` to the next version and list what changed in it; add the new tasks to `BOARD.md` with the next numbers and their names, each with its red test; change the criteria the list touches (named, with the owner's approval recorded in `DECISIONS.md`); mark dropped tasks `dropped` with the reason, and park what depends on them with `blocked by`. A builder already running finishes its current attempt; the change applies to the board after it reports. Update `STATE.md` last.
 - **A change to the spec** that the owner approves in chat is approved. It does not need a second STOP 1.
 
+## Discovery before planning
+
+Before any plan is written, the existing code is mapped. Run `node <plugin>/scripts/sitemap.mjs <project>`, which writes `docs/ghostship/SITEMAP.md`: every route, where it is declared, what links to it, and the **orphans** (routes nothing links to). Read it, then check each feature in the owner's brief against it: a feature with no route, or a route with no link, is a gap to name in the plan. The mod refuses `plan.md` until the sitemap exists. The sitemap only sees routes and links the code declares; it does not run the app, so a feature that works only at runtime still needs the verifier.
+
 ## Research log
 
 Every link, repo, document or example the owner gives for research or reference is saved, the same turn, in `docs/research/`. The owner must be able to find, two months later, what they looked at, what was taken from it and where it lives in the application.

@@ -29,6 +29,7 @@ const PANE = 'ghostship-voyage'
 const STATE_FILE = 'docs/ghostship/STATE.md'
 const BOARD_FILE = 'docs/ghostship/BOARD.md'
 const LEDGER_FILE = 'docs/ghostship/LEDGER.jsonl'
+const SITEMAP_FILE = 'docs/ghostship/SITEMAP.md'
 const EVIDENCE_FILE = 'docs/ghostship/EVIDENCE.md'
 
 const snapAtom = atom({ plugin: 'ghostship', key: 'snap' } as const, null)
@@ -884,6 +885,11 @@ export const register: Register = on => {
     // A task cannot be marked done on the board without its red and end-to-end proof in the evidence file.
     if (e.tool === 'Edit' || e.tool === 'Write' || e.tool === 'MultiEdit') {
       const input = (e as unknown as { input?: { file_path?: unknown; new_string?: unknown; content?: unknown; edits?: { new_string?: unknown }[] } }).input ?? {}
+      // The plan is written only after the sitemap of the existing code exists: discovery comes before planning.
+      if (typeof input.file_path === 'string' && input.file_path.endsWith('docs/ghostship/plan.md') && (await tryRead($, SITEMAP_FILE)) === null) {
+        await noteEvent($, 'Refused a plan: no sitemap of the existing code yet (docs/ghostship/SITEMAP.md).', 'bad')
+        return { deny: 'Ghostship: write the plan only after the sitemap of the existing code exists. Run node <plugin>/scripts/sitemap.mjs <project> and read docs/ghostship/SITEMAP.md first.' }
+      }
       // The ledger is written only by the gate script: an edit to it is refused.
       if (typeof input.file_path === 'string' && isLedgerPath(input.file_path)) {
         await noteEvent($, 'Refused an edit to LEDGER.jsonl: the ledger is written only by the gate script.', 'bad')
