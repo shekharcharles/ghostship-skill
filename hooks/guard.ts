@@ -135,3 +135,10 @@ export function releaseBlockersOf(ledgerText: string): string[] {
   return blockers
 }
 
+/** Whether the retro blocks a release: failures are repeated and the retro was not run, or it has an open item. */
+export function retroBlocks(failuresText: string | null, retroText: string | null): string | null {
+  const repeated = (failuresText ?? '').split('\n').filter(Boolean).length >= 2
+  if (!retroText) return repeated ? 'the retro has not been run: run scripts/retro.mjs and clear its open items before the release' : null
+  return /Open items: [1-9]/.test(retroText) ? 'the retro has open items with no barrier: add a barrier, then run the retro again' : null
+}
+

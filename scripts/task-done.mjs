@@ -8,6 +8,14 @@ import { appendFileSync, mkdirSync, readFileSync, existsSync } from 'node:fs'
 import path from 'node:path'
 import { cannotRun, countTests, verdictOf, failedAttempts, nextAttempt, nonTestChanges, tautologies } from './gate-verdict.mjs'
 
+/** Every refusal is printed and written to FAILURES.jsonl with its code, so the retro can count repeats. */
+function refuse(root, { code, task, phase, message }) {
+  mkdirSync(path.join(root, 'docs/ghostship'), { recursive: true })
+  appendFileSync(path.join(root, 'docs/ghostship/FAILURES.jsonl'), `${JSON.stringify({ code, task, phase, at: new Date().toISOString() })}\n`)
+  console.error(message)
+  return 1
+}
+
 function readLedgerLines(text) {
   return text.split('\n').filter(Boolean).flatMap(l => { try { return [JSON.parse(l)] } catch { return [] } })
 }
@@ -28,8 +36,7 @@ function main(argv) {
   const hasRuling = existsSync(decisionsPath) && readFileSync(decisionsPath, 'utf8').includes(`Ruling: ${task}`)
   const loop = nextAttempt(failedAttempts(before, task), hasRuling)
   if (!loop.ok) {
-    console.error(`${task} ${phase}: refused — ${loop.why}`)
-    return 1
+    return refuse(root, { code: 'fix-loop', task, phase, message: `${task} ${phase}: refused — ${loop.why}` })
   }
   if (loop.fresh) console.log(`${task}: ${loop.note}`)
   // Red comes first: the repro is recorded before any source changes.
@@ -37,8 +44,7 @@ function main(argv) {
   if (phase === 'red') {
     const early = nonTestChanges(status)
     if (early.length) {
-      console.error(`${task} red: refused — source changed before its repro: ${early.join(', ')}. Write the failing test first.`)
-      return 1
+      return refuse(root, { code: 'source-before-repro', task, phase, message: `${task} red: refused — source changed before its repro: ${early.join(', ')}. Write the failing test first.` })
     }
   }
   // A test must test something: a changed test whose expected value is the value under test is refused.
@@ -49,8 +55,7 @@ function main(argv) {
       try { text = readFileSync(path.join(root, f), 'utf8') } catch { continue }
       const hits = tautologies(text)
       if (hits.length) {
-        console.error(`${task} green: refused — tautological test in ${f} line ${hits[0].line}: ${hits[0].text}`)
-        return 1
+        return refuse(root, { code: 'tautology', task, phase, message: `${task} green: refused — tautological test in ${f} line ${hits[0].line}: ${hits[0].text}` })
       }
     }
   }
@@ -63,8 +68,7 @@ function main(argv) {
     // Not verified: recorded, not counted as an attempt, and it blocks the release until a run goes through.
     const head0 = spawnSync('git', ['rev-parse', 'HEAD'], { cwd: root, encoding: 'utf8' }).stdout.trim()
     appendFileSync(ledgerPath, `${JSON.stringify({ task, phase, command, exitCode: run.status, tests: 0, head: head0, recorded: false, status: 'unverified', reason: cannot, at: new Date().toISOString() })}\n`)
-    console.error(`${task} ${phase}: not verified — ${cannot}`)
-    return 1
+    return refuse(root, { code: 'unverified', task, phase, message: `${task} ${phase}: not verified — ${cannot}` })
   }
   const exitCode = run.status ?? 1
   const tests = countTests(output)
@@ -76,8 +80,7 @@ function main(argv) {
   const entry = { task, phase, command, exitCode, tests, head, recorded: verdict.ok, at: new Date().toISOString() }
   appendFileSync(ledgerPath, `${JSON.stringify(entry)}\n`)
   if (!verdict.ok) {
-    console.error(`${task} ${phase}: refused — ${verdict.why}`)
-    return 1
+    return refuse(root, { code: verdict.code, task, phase, message: `${task} ${phase}: refused — ${verdict.why}` })
   }
   if (phase === 'red') {
     console.log(`${task} red: recorded (exit ${exitCode}, the test fails as it should)`)

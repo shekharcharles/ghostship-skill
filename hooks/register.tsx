@@ -11,7 +11,7 @@ import { GS, clock, fmtTokens } from './lib.ts'
 import { appEntries, appIdentity } from './overview.ts'
 import { fitAgents, roleOf, type Running } from './agents.ts'
 import { activityOf, partialArgsOf, thoughtOf, wordsAdded } from './activity.ts'
-import { DELETE_REFUSED, DONE_NEEDS_PROOF, RELEASE_NEEDS_PROOF, boardHasTasks, doneNotInLedger, fixLoopRefusal, gateRecordCommand, isLedgerPath, releaseBlockersOf, releaseCommand, resumeFrom, riskyDelete, unprovenDone } from './guard.ts'
+import { DELETE_REFUSED, DONE_NEEDS_PROOF, RELEASE_NEEDS_PROOF, boardHasTasks, doneNotInLedger, fixLoopRefusal, gateRecordCommand, isLedgerPath, releaseBlockersOf, retroBlocks, releaseCommand, resumeFrom, riskyDelete, unprovenDone } from './guard.ts'
 import { WORDMARK, WORDMARK_WIDTH } from './art.ts'
 import { capReached, missingForLive } from './state.ts'
 import { RUFLO } from './lib.ts'
@@ -31,6 +31,8 @@ const BOARD_FILE = 'docs/ghostship/BOARD.md'
 const LEDGER_FILE = 'docs/ghostship/LEDGER.jsonl'
 const SITEMAP_FILE = 'docs/ghostship/SITEMAP.md'
 const DECISIONS_FILE = 'docs/ghostship/DECISIONS.md'
+const FAILURES_FILE = 'docs/ghostship/FAILURES.jsonl'
+const RETRO_FILE = 'docs/ghostship/RETRO.md'
 const EVIDENCE_FILE = 'docs/ghostship/EVIDENCE.md'
 
 const snapAtom = atom({ plugin: 'ghostship', key: 'snap' } as const, null)
@@ -916,6 +918,9 @@ export const register: Register = on => {
       const board = (await tryRead($, BOARD_FILE)) ?? ''
       // An unreadable or empty board would read as "nothing unbuilt": refuse rather than pass.
       if (!boardHasTasks(board)) return { deny: `${RELEASE_NEEDS_PROOF} The board has no tasks to check, so the gate cannot pass.` }
+      // The retro: repeated refusals must have a barrier, and the retro must have been run, before a release.
+      const retroWhy = retroBlocks((await tryRead($, FAILURES_FILE)), (await tryRead($, RETRO_FILE)))
+      if (retroWhy) return { deny: `${RELEASE_NEEDS_PROOF} ${retroWhy}.` }
       // Unknown is not a pass: a damaged ledger or an unverified run blocks the release.
       const blockers = releaseBlockersOf((await tryRead($, LEDGER_FILE)) ?? '')
       if (blockers.length) return { deny: `${RELEASE_NEEDS_PROOF} Not verified: ${blockers.join('; ')}.` }

@@ -99,3 +99,19 @@ describe("the repro comes first, and a test must test something", () => {
     expect(tautologies("assert f(x) == 3")).toEqual([]);
   });
 });
+
+import { BARRIERS, repeatedFailures, retroMarkdown } from "../scripts/gate-verdict.mjs";
+
+describe("repeated failures become checks", () => {
+  test("a repeated refusal with a barrier is covered; an unknown one is OPEN and listed", () => {
+    const records = [{ code: "tautology" }, { code: "tautology" }, { code: "mystery" }, { code: "mystery" }, { code: "no-red" }];
+    expect(repeatedFailures(records)).toEqual([
+      { code: "tautology", count: 2, open: false },
+      { code: "mystery", count: 2, open: true },
+    ]);
+    const md = retroMarkdown(records);
+    expect(md).toContain("mystery × 2: OPEN, no barrier yet");
+    expect(md).toContain("Open items: 1");
+    expect(BARRIERS["tautology"]).toBeTruthy();
+  });
+});

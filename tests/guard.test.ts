@@ -106,3 +106,12 @@ test("the mod's release check refuses a damaged ledger and an unresolved unverif
   expect(releaseBlockersOf(JSON.stringify({ task: "T003", phase: "green", status: "unverified", recorded: false, reason: "no runner" }))[0]).toMatch(/T003: green was not verified/);
 });
 
+
+import { retroBlocks } from "../hooks/guard.ts";
+
+test("the release is refused while the retro has an open item or none has been run", () => {
+  expect(retroBlocks(null, "")).toBe(null);
+  expect(retroBlocks('{"code":"tautology"}\n{"code":"tautology"}', null)).toMatch(/retro/i);
+  expect(retroBlocks('{"code":"x"}\n{"code":"x"}', "- x × 2: OPEN, no barrier yet\nOpen items: 1")).toMatch(/open/i);
+  expect(retroBlocks('{"code":"tautology"}\n{"code":"tautology"}', "Open items: 0")).toBe(null);
+});
