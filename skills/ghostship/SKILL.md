@@ -1,6 +1,7 @@
 ---
 name: ghostship
-description: Ghostship — an autonomous software factory. Use when the user types /ghostship or asks to start, continue, plan, build, judge or release a project Ghostship runs. Carries a project from idea to a released, test-backed build with exactly two human stops.
+description: Ghostship — an autonomous software factory. Use when the user types /ghostship or asks to start, brainstorm, plan, build, judge or release a project Ghostship runs. Carries a project from idea to a released, test-backed build; the owner is asked once, at STOP 1 (approve the spec).
+argument-hint: "[new | adopt | brainstorm | plan | round | resume | status | add | change | release | help]"
 ---
 
 # Ghostship
@@ -116,11 +117,13 @@ Other files: `PRD.md` · `spec.md` · `plan.md` (the pipeline artifacts) and `ta
 
 ## Commands
 
-`/ghostship <command>` (no command → list these and ask which):
+`/ghostship:ghostship <command>` (no command → print this list and ask which; `/ghostship` alone opens the pane and prints every command the plugin has):
 
 - **new** — a brand-new product. Start at the interview.
 - **adopt** — existing code: read it, then interview, then the same pipeline. **A project on the engine edition** (it has `.ghostship/state/state.json` and no `docs/ghostship/STATE.md`) is moved, not interviewed again: first stop its runner (`node .ghostship/core/runtime/gs.mjs autopilot stop`), then run `node <this skill's base directory>/scripts/from-engine.mjs` in the project. It writes `docs/ghostship/` (STATE, BOARD, EVIDENCE, and DECISIONS for any task the owner retired that others wait on), keeps the approved PRD and acceptance checks where they are (STATE.md names them; they stay approved, STOP 1 is passed), and takes the engine's hooks out of `.claude/settings.json`. Then go on as **resume**, reading the task files the engine wrote under `tasks/`. Never run `gs` again in that project.
 - **resume** — read `STATE.md` and continue from the current stage. Never redo an approved stage. When the stage is `done` (every task merged or parked, the release tagged), do not just say "complete": ask the owner once, with `AskUserQuestion`, whether to start a **new round** (recommended, if they have ideas) or to stop here. A new round is `round`. No `docs/ghostship/STATE.md` but a `.ghostship/` folder means the engine edition: move it as in **adopt** first; never fall back to its `gs` commands.
+- **brainstorm** — talk through ideas first, nothing built. You discuss, challenge and group them; you write `docs/ghostship/ROUND-N.md` only when the owner says so, and each idea is kept, later or dropped by the owner. Same as the first step of **round**, without starting a build.
+- **plan** — after the spec is approved (STOP 1 passed): write `plan.md` with phases, each with its goal and criteria, then the tasks on the board. Refused while the spec is not approved: the mod and the skill both hold the order.
 - **round** — start a new round after a release (or when the owner has more ideas): brainstorm first, then PRD, spec (STOP 1), plan, tasks, build, release. See **A new round** below.
 - **status** — report stage, active task, what waits for the owner.
 - **add** / **change** — a new feature / a change to approved behaviour: reopen only the affected artifact (e.g. `spec.md`), re-approve it, rebuild only what changed.

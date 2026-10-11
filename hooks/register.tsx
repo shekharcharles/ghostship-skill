@@ -68,6 +68,32 @@ const routingAtom = atom({ plugin: 'ghostship', key: 'routing' } as const, DEFAU
 const BUILD_MODES = ['tdd', 'verify', 'iterative'] as const
 const AUTONOMY_LEVELS = ['autopilot', 'auto'] as const
 const SKILL_COMMAND = 'ghostship:ghostship'
+// Every command Ghostship answers to, in one place: the help text, and the hint shown after /ghostship.
+const SUBCOMMANDS = ['new', 'adopt', 'brainstorm', 'plan', 'round', 'resume', 'status', 'add', 'change', 'release', 'help'] as const
+const COMMAND_HELP = [
+  'Ghostship commands',
+  '',
+  '  /ghostship            open the pane and show this list',
+  '  /ghostship:ghostship  the skill: type a word after it, e.g. /ghostship:ghostship brainstorm',
+  '',
+  '  Project:',
+  '    new        a brand-new product: interview, PRD, spec, then STOP 1',
+  '    adopt      existing code (or a project from the old engine): read it, then the same pipeline',
+  '    brainstorm talk through ideas with you first; nothing is built, nothing is decided for you',
+  '    plan       turn the approved spec into phases in plan.md, then tasks on the board',
+  '    round      start a new round after a release: brainstorm, decide, PRD, spec, plan, build',
+  '    resume     continue from the current stage (asks about a new round when all tasks are done)',
+  '    status     the stage, the active task and what waits for you',
+  '    add        a new feature; change: a change to approved behaviour',
+  '    release    tag the release once every task is built (refused while any task is unproven)',
+  '',
+  '  Pane and mod:',
+  '    /ghostship-band      show or hide the band above the prompt',
+  '    /ghostship-update    check for and install the newest version',
+  '    ◆ Ghostship button   in the prompt footer: mode, autonomy, cache, control, updates, launch',
+  '',
+  '  Build control: Take back control stops every agent action; Give control back resumes.',
+].join('\n')
 const boardOpenAtom = atom({ plugin: 'ghostship', key: 'boardOpen' } as const, true)
 const recorderOpenAtom = atom({ plugin: 'ghostship', key: 'recorderOpen' } as const, true)
 
@@ -644,7 +670,7 @@ export const register: Register = on => {
     try { await readVersion($) } catch { /* unknown version */ }
     try { await seedSpend($) } catch { /* no spend */ }
     // Each step is guarded on its own, so one failure never stops the band from coming up.
-    try { await $.command.register({ name: 'ghostship', description: 'Open the Ghostship pane', immediate: true }) } catch { /* no command */ }
+    try { await $.command.register({ name: 'ghostship', description: 'Open the Ghostship pane and list every Ghostship command', argumentHint: `[${SUBCOMMANDS.join(' | ')}]`, immediate: true }) } catch { /* no command */ }
     try { await $.command.register({ name: 'ghostship-band', description: 'Ghostship: show or hide the voyage band', immediate: true }) } catch { /* no command */ }
     try { await $.command.register({ name: 'ghostship-update', description: 'Ghostship: check for and install the latest version', immediate: true }) } catch { /* no command */ }
     try { const r = cleanRouting(await $.store.get('routing')); await update($, routingAtom, () => r) } catch { /* the default routing */ }
@@ -881,7 +907,7 @@ export const register: Register = on => {
 
   on('command.run', { command: 'ghostship' }, async $ => {
     await setPane($, true)
-    return { text: 'Ghostship pane opened.' }
+    return { text: COMMAND_HELP }
   })
 
   on('command.run', { command: 'ghostship-update' }, async $ => {
