@@ -907,7 +907,13 @@ export const register: Register = on => {
     return next(e)
   }).catch(($, e, next) => next(e))
 
-  on('command.run', { command: 'ghostship' }, async $ => {
+  on('command.run', { command: 'ghostship' }, async ($, e) => {
+    // `/ghostship new` (or any subcommand) is the skill's: put the full skill command in the prompt, as the panel's buttons do.
+    const word = String(e.args ?? '').trim().split(/\s+/)[0] ?? ''
+    if (word && word !== 'help' && (SUBCOMMANDS as readonly string[]).includes(word)) {
+      await $.prompt.fill({ text: `/${SKILL_COMMAND} ${String(e.args).trim()}` }).catch(() => undefined)
+      return { text: `Sent to the Ghostship skill: /${SKILL_COMMAND} ${String(e.args).trim()}` }
+    }
     await setPane($, true)
     return { text: COMMAND_HELP }
   })
