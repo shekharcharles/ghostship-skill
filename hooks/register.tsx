@@ -11,7 +11,7 @@ import { GS, clock, fmtTokens } from './lib.ts'
 import { appEntries, appIdentity } from './overview.ts'
 import { fitAgents, roleOf, type Running } from './agents.ts'
 import { activityOf, partialArgsOf, thoughtOf, wordsAdded } from './activity.ts'
-import { DELETE_REFUSED, DONE_NEEDS_PROOF, RELEASE_NEEDS_PROOF, boardHasTasks, doneNotInLedger, fixLoopRefusal, gateRecordCommand, isLedgerPath, releaseCommand, resumeFrom, riskyDelete, unprovenDone } from './guard.ts'
+import { DELETE_REFUSED, DONE_NEEDS_PROOF, RELEASE_NEEDS_PROOF, boardHasTasks, doneNotInLedger, fixLoopRefusal, gateRecordCommand, isLedgerPath, releaseBlockersOf, releaseCommand, resumeFrom, riskyDelete, unprovenDone } from './guard.ts'
 import { WORDMARK, WORDMARK_WIDTH } from './art.ts'
 import { capReached, missingForLive } from './state.ts'
 import { RUFLO } from './lib.ts'
@@ -916,6 +916,9 @@ export const register: Register = on => {
       const board = (await tryRead($, BOARD_FILE)) ?? ''
       // An unreadable or empty board would read as "nothing unbuilt": refuse rather than pass.
       if (!boardHasTasks(board)) return { deny: `${RELEASE_NEEDS_PROOF} The board has no tasks to check, so the gate cannot pass.` }
+      // Unknown is not a pass: a damaged ledger or an unverified run blocks the release.
+      const blockers = releaseBlockersOf((await tryRead($, LEDGER_FILE)) ?? '')
+      if (blockers.length) return { deny: `${RELEASE_NEEDS_PROOF} Not verified: ${blockers.join('; ')}.` }
       const unproven = unprovenDone(board, (await tryRead($, EVIDENCE_FILE)) ?? '')
       if (unproven.length) {
         await noteEvent($, `Release refused: ${unproven.length} task(s) not built yet (${unproven.slice(0, 6).join(', ')}).`, 'bad')

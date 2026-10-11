@@ -62,3 +62,24 @@ describe("the fix loop is bounded", () => {
     expect(failedAttempts([{ task: "T001", phase: "red", recorded: false }], "T001")).toBe(0);
   });
 });
+
+import { cannotRun, releaseBlockers } from "../scripts/gate-verdict.mjs";
+
+describe("unknown is not a pass", () => {
+  test("a command that cannot run is unverified, not a failed attempt", () => {
+    expect(cannotRun({ exitCode: 127, error: null })).toMatch(/could not run/);
+    expect(cannotRun({ exitCode: 0, error: "ENOENT" })).toMatch(/could not start/);
+    expect(cannotRun({ exitCode: 1, error: null })).toBe(null);
+    const unverified = { task: "T001", phase: "green", recorded: false, status: "unverified" };
+    expect(failedAttempts([unverified], "T001")).toBe(0);
+  });
+  test("a damaged ledger or an unresolved unverified run blocks the release", () => {
+    expect(releaseBlockers(JSON.stringify({ task: "T001", phase: "green", recorded: true }))).toEqual([]);
+    expect(releaseBlockers("broken line")).toEqual(["1 damaged ledger line(s): the record cannot be read in full"]);
+    const u = JSON.stringify({ task: "T002", phase: "verify", recorded: false, status: "unverified", reason: "no runner" });
+    expect(releaseBlockers(u)[0]).toMatch(/T002: verify was not verified/);
+    const later = u + "\n" + JSON.stringify({ task: "T002", phase: "verify", recorded: true });
+    expect(releaseBlockers(later)).toEqual([]);
+  });
+});
+

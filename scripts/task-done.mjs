@@ -6,7 +6,7 @@
 import { spawnSync } from 'node:child_process'
 import { appendFileSync, mkdirSync, readFileSync, existsSync } from 'node:fs'
 import path from 'node:path'
-import { countTests, verdictOf, failedAttempts, nextAttempt } from './gate-verdict.mjs'
+import { cannotRun, countTests, verdictOf, failedAttempts, nextAttempt } from './gate-verdict.mjs'
 
 function readLedgerLines(text) {
   return text.split('\n').filter(Boolean).flatMap(l => { try { return [JSON.parse(l)] } catch { return [] } })
@@ -36,6 +36,14 @@ function main(argv) {
   mkdirSync(path.dirname(ledgerPath), { recursive: true })
   const run = spawnSync('sh', ['-c', command], { cwd: root, encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 })
   const output = `${run.stdout ?? ''}${run.stderr ?? ''}`
+  const cannot = cannotRun({ exitCode: run.status, error: run.error ? String(run.error.message ?? run.error) : null })
+  if (cannot) {
+    // Not verified: recorded, not counted as an attempt, and it blocks the release until a run goes through.
+    const head0 = spawnSync('git', ['rev-parse', 'HEAD'], { cwd: root, encoding: 'utf8' }).stdout.trim()
+    appendFileSync(ledgerPath, `${JSON.stringify({ task, phase, command, exitCode: run.status, tests: 0, head: head0, recorded: false, status: 'unverified', reason: cannot, at: new Date().toISOString() })}\n`)
+    console.error(`${task} ${phase}: not verified — ${cannot}`)
+    return 1
+  }
   const exitCode = run.status ?? 1
   const tests = countTests(output)
   const ledger = existsSync(ledgerPath) ? readFileSync(ledgerPath, 'utf8').split('\n').filter(Boolean).map(l => JSON.parse(l)) : []

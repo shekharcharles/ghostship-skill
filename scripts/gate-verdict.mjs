@@ -64,7 +64,7 @@ export const RULING_AFTER = 4
 
 /** Failed attempts for a task: a green or verify run that did not pass. A red that passes is a refused record, not an attempt. */
 export function failedAttempts(entries, task) {
-  return entries.filter(e => e.task === task && !e.recorded && (e.phase === 'green' || e.phase === 'verify')).length
+  return entries.filter(e => e.task === task && !e.recorded && e.status !== 'unverified' && (e.phase === 'green' || e.phase === 'verify')).length
 }
 
 /** What the next run of a task may do: ok, whether it must be a fresh implementer, and whether it is refused until a ruling exists. */
@@ -76,4 +76,33 @@ export function nextAttempt(failed, hasRuling) {
     return { ok: true, fresh: true, note: 'fresh implementer on a stronger model: the builder has failed three times' }
   }
   return { ok: true, fresh: false }
+}
+
+/**
+ * A check that could not run at all (the program is missing, not executable, or the process failed to start) is not a failed
+ * product run and not a pass: it is `unverified`. Returns the reason, or null when the command ran.
+ */
+export function cannotRun({ exitCode, error }) {
+  if (error) return `the command could not start: ${error}`
+  if (exitCode === 126 || exitCode === 127) return `the command could not run (exit ${exitCode})`
+  return null
+}
+
+/**
+ * What blocks a release, read from the ledger: lines that do not parse (the record is damaged) and tasks whose latest run
+ * is unverified with no later recorded run. Unknown is never a pass.
+ */
+export function releaseBlockers(text) {
+  const blockers = []
+  const latest = new Map()
+  let damaged = 0
+  for (const line of String(text ?? '').split('\n')) {
+    if (!line.trim()) continue
+    let e
+    try { e = JSON.parse(line) } catch { damaged += 1; continue }
+    if (e.task) latest.set(`${e.task}:${e.phase}`, e)
+  }
+  if (damaged) blockers.push(`${damaged} damaged ledger line(s): the record cannot be read in full`)
+  for (const [key, e] of latest) if (e.status === 'unverified') blockers.push(`${key.split(':')[0]}: ${key.split(':')[1]} was not verified (${e.reason ?? 'could not run'})`)
+  return blockers
 }

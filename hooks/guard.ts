@@ -111,10 +111,27 @@ export function fixLoopRefusal(command: string, ledgerText: string, decisionsTex
   for (const line of ledgerText.split('\n')) {
     try {
       const e = JSON.parse(line) as { task?: string; phase?: string; recorded?: boolean }
-      if (e.task === task && e.recorded === false && (e.phase === 'green' || e.phase === 'verify')) failed += 1
+      if (e.task === task && e.recorded === false && (e as { status?: string }).status !== 'unverified' && (e.phase === 'green' || e.phase === 'verify')) failed += 1
     } catch { /* skipped */ }
   }
   const ruled = decisionsText.includes(`Ruling: ${task}`)
   return failed >= 4 && !ruled ? `${task} has failed ${failed} times with no ruling: write "Ruling: ${task} — what, why, cost if wrong" in DECISIONS.md first` : null
+}
+
+/** The release blockers the mod can see: damaged ledger lines, and runs that could not be verified with no later recorded run. */
+export function releaseBlockersOf(ledgerText: string): string[] {
+  const blockers: string[] = []
+  const latest = new Map<string, { status?: string; reason?: string; recorded?: boolean }>()
+  let damaged = 0
+  for (const line of ledgerText.split('\n')) {
+    if (!line.trim()) continue
+    try {
+      const e = JSON.parse(line) as { task?: string; phase?: string; status?: string; reason?: string; recorded?: boolean }
+      if (e.task) latest.set(`${e.task}:${e.phase}`, e)
+    } catch { damaged += 1 }
+  }
+  if (damaged) blockers.push(`${damaged} damaged ledger line(s): the record cannot be read in full`)
+  for (const [key, e] of latest) if (e.status === 'unverified') blockers.push(`${key.replace(':', ': ')} was not verified (${e.reason ?? 'could not run'})`)
+  return blockers
 }
 

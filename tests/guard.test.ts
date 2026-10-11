@@ -98,3 +98,11 @@ test("the mod refuses a fourth failure's retry until a ruling exists", () => {
   expect(fixLoopRefusal("npm test", fails, "")).toBe(null);
 });
 
+import { releaseBlockersOf } from "../hooks/guard.ts";
+
+test("the mod's release check refuses a damaged ledger and an unresolved unverified run", () => {
+  expect(releaseBlockersOf("")).toEqual([]);
+  expect(releaseBlockersOf("broken")).toHaveLength(1);
+  expect(releaseBlockersOf(JSON.stringify({ task: "T003", phase: "green", status: "unverified", recorded: false, reason: "no runner" }))[0]).toMatch(/T003: green was not verified/);
+});
+
