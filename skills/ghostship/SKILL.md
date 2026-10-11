@@ -146,6 +146,28 @@ The owner can talk to you at any time, and the builders keep running. Answer, di
 - **When the owner says apply:** bump `PRD.md` to the next version and list what changed in it; add the new tasks to `BOARD.md` with the next numbers and their names, each with its red test; change the criteria the list touches (named, with the owner's approval recorded in `DECISIONS.md`); mark dropped tasks `dropped` with the reason, and park what depends on them with `blocked by`. A builder already running finishes its current attempt; the change applies to the board after it reports. Update `STATE.md` last.
 - **A change to the spec** that the owner approves in chat is approved. It does not need a second STOP 1.
 
+## Research log
+
+Every link, repo, document or example the owner gives for research or reference is saved, the same turn, in `docs/research/`. The owner must be able to find, two months later, what they looked at, what was taken from it and where it lives in the application.
+
+- **Index:** `docs/research/INDEX.md`, one line per source: date, title, link, the status (`adopted`, `partly adopted` or `not adopted`), and the file below.
+- **One file per source:** `docs/research/NNN-short-name.md`, using this form:
+
+```
+# NNN · Short name
+- Link: <url or path>
+- Why it was looked at: <the owner's reason, in their words>
+- Date and where it was read: <date>, <round or task IDs it informed>
+- What it contains: <three to six lines, in your own words>
+- Adopted: <each idea taken, one line each>
+- Where it lives in the app: <file and function, or section, for each idea>
+- How the app uses it: <what the feature does now, and how the owner runs it>
+- Not adopted: <what was left out, and why>
+- Licence and credit: <licence, and the credit line if text was copied>
+```
+
+Write the record when the source is given, and update it when something is adopted or the code moves. A source whose record is missing is not finished research. Do not paste long passages from a source; summarise and link.
+
 ## What counts as built
 
 A task is **built** only when the running application does what the spec says, from its real entry point. Unit tests passing is not built. Code that exists but nothing calls is not built. "Zero findings" is not a pass.
