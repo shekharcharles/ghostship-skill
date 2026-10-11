@@ -11,7 +11,7 @@ import { GS, clock, fmtTokens } from './lib.ts'
 import { appEntries, appIdentity } from './overview.ts'
 import { fitAgents, roleOf, type Running } from './agents.ts'
 import { activityOf, partialArgsOf, thoughtOf, wordsAdded } from './activity.ts'
-import { DELETE_REFUSED, riskyDelete } from './guard.ts'
+import { DELETE_REFUSED, DONE_NEEDS_PROOF, riskyDelete, unprovenDone } from './guard.ts'
 import { WORDMARK, WORDMARK_WIDTH } from './art.ts'
 import { capReached, missingForLive } from './state.ts'
 import { RUFLO } from './lib.ts'
@@ -831,6 +831,18 @@ export const register: Register = on => {
       await startAction($, id, `${who}: ${step}`)
       await endAction($, id, 'refused')
       return { deny: PAUSED_REFUSED }
+    }
+    // A task cannot be marked done on the board without its red and end-to-end proof in the evidence file.
+    if (e.tool === 'Edit' || e.tool === 'Write' || e.tool === 'MultiEdit') {
+      const input = (e as unknown as { input?: { file_path?: unknown; new_string?: unknown; content?: unknown; edits?: { new_string?: unknown }[] } }).input ?? {}
+      if (typeof input.file_path === 'string' && input.file_path.endsWith('docs/ghostship/BOARD.md')) {
+        const written = [input.new_string, input.content, ...(input.edits ?? []).map(x => x.new_string)].filter((x): x is string => typeof x === 'string').join('\n')
+        const bad = unprovenDone(written, (await tryRead($, EVIDENCE_FILE)) ?? '')
+        if (bad.length) {
+          await noteEvent($, `Refused: ${bad.join(', ')} marked done with no red or end-to-end proof.`, 'bad')
+          return { deny: `${DONE_NEEDS_PROOF} Not yet proven: ${bad.join(', ')}.` }
+        }
+      }
     }
     // A delete that could remove more than it names is refused at once: the agent gets the reason and goes on, nothing waits.
     if (e.tool === 'Bash' && riskyDelete(String((e as unknown as { input?: { command?: unknown } }).input?.command ?? ''))) {

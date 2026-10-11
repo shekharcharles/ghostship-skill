@@ -80,6 +80,10 @@ A task is built only when the running application does what the spec says, from 
 
 Each task is built red, then green: the builder records a failing test and its failure, then the passing run, and the judge runs the product end to end. The Plan tab marks a task **built** only when all three are on its evidence line, and **no red test** when the failing run is missing. The **discuss a change** button on the Plan tab puts a message in the prompt. You can talk while builders run: the discussion changes no files until you say apply, and then the PRD, the board and the criteria are updated, with dropped tasks and their dependants parked.
 
+## Enforced: no done without proof
+
+The mod refuses any write to `docs/ghostship/BOARD.md` that marks a task `done` or `merged` unless its latest PASS line in `EVIDENCE.md` has a red run before the green one, and an end-to-end run. The refusal goes back to the agent with the reason, and the top line says which tasks lack proof. The check covers Edit, Write and MultiEdit.
+
 ## Control
 
 **Take back control** (Overview, or the ◆ Ghostship menu → Control) stops every agent action at once: the main thread and each subagent are refused, the build is not nudged to carry on, and the pane's top line says so. **Give control back** puts `/ghostship:ghostship resume` in the prompt for you to send. Refusals show on the top line too: a delete that could remove more than it names, a question during the unattended build, and any action while control is taken back. The **ACTIONS** card lists the last twelve actions with ✓ done, ✗ refused, or a spinner while running.
@@ -98,7 +102,7 @@ The pane is tabbed, so you pick a view instead of scrolling one long list: **Ove
 - `types/index.d.ts` — the `$.state` contract
 - `tests/` — `claude plugin test` suites
 
-Status: **0.15.0**, in active development. The earlier engine edition lives at github.com/shekharcharles/ghostship.
+Status: **0.16.0**, in active development. The earlier engine edition lives at github.com/shekharcharles/ghostship.
 
 ## Credits
 
