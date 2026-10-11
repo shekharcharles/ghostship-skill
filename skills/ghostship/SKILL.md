@@ -136,6 +136,8 @@ Every task is built red, then green, and the evidence shows both, in order:
 2. **Green.** Only then the builder writes the code, runs the same test, and records `green: <command> → pass`.
 3. **E2E.** The judge runs the product against the lab and records `e2e: <command> → <what it showed>`.
 
+**Builders never write red or green lines themselves.** Each run goes through the gate script, which runs the command, reads the real exit code and test count, and writes the ledger and the evidence line: `node <plugin>/scripts/task-done.mjs red|green <TASK-ID> <project> -- <command>`. A red run that passes, or a green with zero tests or no earlier red, is refused and recorded as refused.
+
 The judge checks the order: a red run recorded after the code, or no red run at all, means the task is `no red test`, and the subagent is redeployed. A task with red, green and e2e is built; anything less is unproven.
 
 ## Talking to the owner while building

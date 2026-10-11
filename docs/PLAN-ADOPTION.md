@@ -1,0 +1,18 @@
+# Adoption plan: what Ghostship takes from Superpowers, GSD, gstack and Matt Pocock
+
+Each step is a change to the skill, the mod, or both. A step is done when its test passes and it is used in a real build. Order matters: each step depends on the one before it.
+
+| # | Step | Taken from | Why it comes here |
+|---|---|---|---|
+| 1 | **Gate script records a run only on its real result.** `scripts/task-done.mjs` runs the command, captures its exit code and test count, writes a ledger line, and appends the EVIDENCE line itself. A green with zero tests, or a green with no earlier red, is refused. | Superpowers `task-done`; gstack zero-run rule | The builder stops writing its own evidence. |
+| 2 | **Ledger as the only record, with resume rules.** `docs/ghostship/LEDGER.jsonl` is append-only. STATE is rebuilt from the ledger and git log on resume, never from memory. | Superpowers ledger; gstack fingerprint | A resumed run can't re-do or skip work. |
+| 3 | **A separate verifier writes PASS.** A fresh subagent reads the diff and runs the product, then writes the verdict. The mod refuses an EVIDENCE PASS line that was not written by step 1's script after a verifier verdict. | GSD goal-backward verifier; Superpowers reviewer briefs | The orchestrator and the builder can no longer approve their own work. |
+| 4 | **Discovery before planning.** Map every route, page, link and feature into `docs/ghostship/SITEMAP.md`, and check the spec against it. The mod refuses a plan until the sitemap exists. | Your request; gstack `/qa` link check | Gaps in navigation and features are found before they are built. |
+| 5 | **Bounded fix loop with rulings.** Three attempts on a task; then a fresh implementer on a stronger model; then the orchestrator rules on what is still open (`Ruling: what — why — cost if wrong`) and parks it. | Superpowers fix loop and rulings | No task loops forever, and every decision is written down. |
+| 6 | **Unknown is not pass.** A check that cannot run, or evidence that cannot be read, is recorded as `not verified` and blocks the release. | GSD "unreadable is not none"; our empty-board rule | No silent passes. |
+| 7 | **Matt Pocock's red-capable repro gate for bugs, and the tautology ban.** A bug fix needs one command that goes red on the reported symptom before any code changes. Tests must go through agreed seams and must not recompute their own expected value. | Matt Pocock `diagnosing-bugs`, `tdd` | Tests stop passing by construction. |
+| 8 | **Retro turns failures into checks.** A mistake that repeats becomes a script or a mod refusal, not a reworded rule. | Matt Pocock `retro`; Superpowers rule that a repeated violation needs a barrier | The process gets stricter from its own failures. |
+
+Not adopted: per-task fresh reviewers on every task (cost), conversational UAT per test (we have one owner stop), git worktrees and the merge menu (we push to main), and the always-on context injection from Superpowers.
+
+Verification limit: I can't run the Crucible app now, because the server key was refused. Steps 3 and 4 need that access to be proven on your app.
