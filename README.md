@@ -102,7 +102,7 @@ The pane is tabbed, so you pick a view instead of scrolling one long list: **Ove
 - `types/index.d.ts` — the `$.state` contract
 - `tests/` — `claude plugin test` suites
 
-Status: **0.19.1**, in active development. The earlier engine edition lives at github.com/shekharcharles/ghostship.
+Status: **0.19.2**, in active development. The earlier engine edition lives at github.com/shekharcharles/ghostship.
 
 ## Credits
 
