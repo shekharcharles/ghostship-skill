@@ -58,7 +58,8 @@ import { doneNotInLedger, isLedgerPath } from "../hooks/guard.ts";
 
 test("a done row needs a green in the ledger, and the ledger file is not hand-editable", () => {
   const ledger = JSON.stringify({ task: "T001", phase: "green", recorded: true });
-  expect(doneNotInLedger("| T001 | n | 1 | done | A1 |", ledger)).toEqual([]);
+  expect(doneNotInLedger("| T001 | n | 1 | done | A1 |", ledger)).toEqual(["T001"]);
+  expect(doneNotInLedger("| T001 | n | 1 | done | A1 |", ledger + "\n" + JSON.stringify({ task: "T001", phase: "verify", recorded: true }))).toEqual([]);
   expect(doneNotInLedger("| T002 | n | 1 | done | A2 |", ledger)).toEqual(["T002"]);
   expect(isLedgerPath("/work/docs/ghostship/LEDGER.jsonl")).toBe(true);
   expect(isLedgerPath("/work/docs/ghostship/EVIDENCE.md")).toBe(false);
@@ -74,5 +75,16 @@ test("a resume summary counts verified and in-progress tasks from the ledger", (
     "broken",
   ].join("\n");
   expect(resumeFrom(ledger)).toEqual({ verified: 1, inProgress: 1, damaged: 1 });
+});
+
+import { gateRecordCommand } from "../hooks/guard.ts";
+
+test("a done row needs a verifier's pass, and only a gate command records runs", () => {
+  const greenOnly = JSON.stringify({ task: "T001", phase: "green", recorded: true });
+  const verified = greenOnly + "\n" + JSON.stringify({ task: "T001", phase: "verify", recorded: true });
+  expect(doneNotInLedger("| T001 | n | 1 | done | A1 |", greenOnly)).toEqual(["T001"]);
+  expect(doneNotInLedger("| T001 | n | 1 | done | A1 |", verified)).toEqual([]);
+  expect(gateRecordCommand("node scripts/task-done.mjs verify T001 . -- npm e2e").phase).toBe("verify");
+  expect(gateRecordCommand("npm test").recordsRun).toBe(false);
 });
 

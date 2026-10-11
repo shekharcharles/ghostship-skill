@@ -57,13 +57,19 @@ export function boardHasTasks(board: string): boolean {
 
 /** The tasks a board edit marks done that the ledger does not prove with a recorded green. The ledger is the record; EVIDENCE.md is a copy. */
 export function doneNotInLedger(boardEdit: string, ledgerText: string): string[] {
+  // Done needs a recorded red-then-green and a recorded verifier pass. (The verifier's pass is a ledger line with phase verify.)
   // The ledger's rules live in scripts/gate-verdict.mjs; the same parse runs in the mod and in the gate script.
   const greens = new Set<string>()
+  const verified = new Set<string>()
   for (const line of ledgerText.split('\n')) {
-    try { const e = JSON.parse(line) as { task?: string; phase?: string; recorded?: boolean }; if (e.phase === 'green' && e.recorded && e.task) greens.add(e.task) } catch { /* skipped */ }
+    try {
+      const e = JSON.parse(line) as { task?: string; phase?: string; recorded?: boolean }
+      if (e.phase === 'green' && e.recorded && e.task) greens.add(e.task)
+      if (e.phase === 'verify' && e.recorded && e.task) verified.add(e.task)
+    } catch { /* skipped */ }
   }
   const done = [...boardEdit.matchAll(/^\s*\|\s*(T\d+)\s*\|[^\n]*\|\s*(?:done|merged)\s*\|/gim)].map(m => m[1]!)
-  return [...new Set(done)].filter(id => !greens.has(id))
+  return [...new Set(done)].filter(id => !greens.has(id) || !verified.has(id))
 }
 
 /** Whether a path is the ledger: it is written only by the gate script, never by an edit. */
@@ -85,5 +91,11 @@ export function resumeFrom(ledgerText: string): { verified: number; inProgress: 
     } catch { damaged += 1 }
   }
   return { verified: greens.size, inProgress: [...reds].filter(t => !greens.has(t)).length, damaged }
+}
+
+/** Whether a shell command records a gate run. The orchestrator never does: only a subagent may, and only a verifier may verify. */
+export function gateRecordCommand(command: string): { recordsRun: boolean; phase: string | null } {
+  const m = command.match(/task-done\.mjs\s+(red|green|verify)\b/)
+  return { recordsRun: !!m, phase: m ? m[1]! : null }
 }
 

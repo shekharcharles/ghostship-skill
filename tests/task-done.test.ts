@@ -8,6 +8,7 @@ describe("the gate script records a run only on its real result", () => {
     expect(countTests("collected 12 items\n===== 12 passed in 0.8s =====")).toBe(12);
     expect(countTests("Tests:  3 failed, 9 passed, 12 total")).toBe(9);
     expect(countTests("random words")).toBe(0);
+    expect(countTests("3 checks passed")).toBe(3);
   });
 
   test("a red run must fail; a green run needs exit 0, tests, and an earlier red", () => {
@@ -38,3 +39,11 @@ describe("the ledger is the record a resume trusts", () => {
     expect(ledgerProves(entries, "T003")).toBe(false);
   });
 });
+
+test("a verifier pass needs a green before it and at least one check run", () => {
+  expect(verdictOf({ phase: "verify", exitCode: 0, tests: 4, hasRed: true, hasGreen: true }).ok).toBe(true);
+  expect(verdictOf({ phase: "verify", exitCode: 0, tests: 4, hasRed: true, hasGreen: false }).why).toMatch(/no green/);
+  expect(verdictOf({ phase: "verify", exitCode: 0, tests: 0, hasRed: true, hasGreen: true }).why).toMatch(/zero checks/);
+  expect(verdictOf({ phase: "verify", exitCode: 2, tests: 4, hasRed: true, hasGreen: true }).ok).toBe(false);
+});
+

@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 // Records a task's red or green run from its real exit code. The builder never writes this record itself.
-// Usage: node task-done.mjs <red|green> <TASK-ID> <folder> -- <command>
+// Usage: node task-done.mjs <red|green|verify> <TASK-ID> <folder> -- <command>
+// verify is run by a verifier subagent only (the mod refuses it from the main thread); it alone writes the PASS line.
 // Exit 0 when the run is recorded; 1 when it is refused (the reason is printed).
 import { spawnSync } from 'node:child_process'
 import { appendFileSync, mkdirSync, readFileSync, existsSync } from 'node:fs'
@@ -25,7 +26,8 @@ function main(argv) {
   const tests = countTests(output)
   const ledger = existsSync(ledgerPath) ? readFileSync(ledgerPath, 'utf8').split('\n').filter(Boolean).map(l => JSON.parse(l)) : []
   const hasRed = ledger.some(r => r.task === task && r.phase === 'red' && r.recorded)
-  const verdict = verdictOf({ phase, exitCode, tests, hasRed })
+  const hasGreen = ledger.some(r => r.task === task && r.phase === 'green' && r.recorded)
+  const verdict = verdictOf({ phase, exitCode, tests, hasRed, hasGreen })
   const head = spawnSync('git', ['rev-parse', 'HEAD'], { cwd: root, encoding: 'utf8' }).stdout.trim()
   const entry = { task, phase, command, exitCode, tests, head, recorded: verdict.ok, at: new Date().toISOString() }
   appendFileSync(ledgerPath, `${JSON.stringify(entry)}\n`)
@@ -35,9 +37,11 @@ function main(argv) {
   }
   if (phase === 'red') {
     console.log(`${task} red: recorded (exit ${exitCode}, the test fails as it should)`)
+  } else if (phase === 'green') {
+    console.log(`${task} green: recorded (${tests} tests). Not done until a verifier passes it.`)
   } else {
-    appendFileSync(evidencePath, `- ${task} · PASS · red: recorded in LEDGER.jsonl · green: ${command} → pass (${tests} tests, exit 0)\n`)
-    console.log(`${task} green: recorded (${tests} tests); EVIDENCE.md updated`)
+    appendFileSync(evidencePath, `- ${task} · PASS · red and green: recorded in LEDGER.jsonl · verified by a subagent: ${command} → pass (${tests} checks, exit 0)\n`)
+    console.log(`${task} verify: passed (${tests} checks); EVIDENCE.md updated`)
   }
   return 0
 }

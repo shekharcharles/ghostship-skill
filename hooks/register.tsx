@@ -11,7 +11,7 @@ import { GS, clock, fmtTokens } from './lib.ts'
 import { appEntries, appIdentity } from './overview.ts'
 import { fitAgents, roleOf, type Running } from './agents.ts'
 import { activityOf, partialArgsOf, thoughtOf, wordsAdded } from './activity.ts'
-import { DELETE_REFUSED, DONE_NEEDS_PROOF, RELEASE_NEEDS_PROOF, boardHasTasks, doneNotInLedger, isLedgerPath, releaseCommand, resumeFrom, riskyDelete, unprovenDone } from './guard.ts'
+import { DELETE_REFUSED, DONE_NEEDS_PROOF, RELEASE_NEEDS_PROOF, boardHasTasks, doneNotInLedger, gateRecordCommand, isLedgerPath, releaseCommand, resumeFrom, riskyDelete, unprovenDone } from './guard.ts'
 import { WORDMARK, WORDMARK_WIDTH } from './art.ts'
 import { capReached, missingForLive } from './state.ts'
 import { RUFLO } from './lib.ts'
@@ -125,6 +125,8 @@ type Live = {
 }
 const MAX_INPUT_HEAD = 400
 const lives = new Map<string, Live>()
+// The subagents spawned as verifiers: only they may record a verification.
+const verifiers = new Set<string>()
 function liveOf(key: string): Live {
   let live = lives.get(key)
   if (!live) {
@@ -838,6 +840,7 @@ export const register: Register = on => {
     )
     const routed = e.fork ? undefined : retry ? 'claude-opus-5-5' : modelFor(await read($, routingAtom), role)
     const result = await next(routed ? { ...e, model: routed } : e)
+    if (result.agentId !== undefined && /verif/i.test(`${e.name ?? ''} ${e.description}`)) verifiers.add(result.agentId)
     if (result.agentId !== undefined) {
       // Named for its role and task, with the task's title from BOARD.md, so the list says what it is building.
       const id = taskOf(`${e.name ?? ''} ${e.description}`)
@@ -863,6 +866,20 @@ export const register: Register = on => {
       await startAction($, id, `${who}: ${step}`)
       await endAction($, id, 'refused')
       return { deny: PAUSED_REFUSED }
+    }
+    // A gate run is recorded by a subagent only: the orchestrator never records one, and only a verifier may record a verification.
+    if (e.tool === 'Bash') {
+      const cmd = String((e as unknown as { input?: { command?: unknown } }).input?.command ?? '')
+      const gate = gateRecordCommand(cmd)
+      if (gate.recordsRun) {
+        const why = e.agentId === undefined ? 'the main thread never records a run: a subagent does'
+          : gate.phase === 'verify' && !verifiers.has(e.agentId) ? 'only a verifier subagent may record a verification'
+          : null
+        if (why) {
+          await noteEvent($, `Refused a gate record: ${why}.`, 'bad')
+          return { deny: `Ghostship: ${why}. Hand the run to the right subagent.` }
+        }
+      }
     }
     // A task cannot be marked done on the board without its red and end-to-end proof in the evidence file.
     if (e.tool === 'Edit' || e.tool === 'Write' || e.tool === 'MultiEdit') {

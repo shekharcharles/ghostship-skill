@@ -184,6 +184,8 @@ Only rungs 3 and 4 make a task **built**. A task that passes 1 and 2 but not 3 a
 
 **Parallel work counts each part.** When several agents do the same kind of thing (five detector agents, say), each one is a separate task with its own `e2e:` line. "Two of five work" is not built; the release gate lists the three that are not.
 
+**The verifier is a separate subagent, named `Verifier T###` (or `Verifier T### — <name>`), spawned fresh for each task after its green.** Its brief gives it the task, the spec lines it covers and the verification command, and tells it not to trust the builder's report. It reads the diff, runs the product, and records its run with `node <plugin>/scripts/task-done.mjs verify <TASK-ID> <project> -- <command>`. The mod refuses a verify record from anyone but a verifier, and refuses every gate record from the main thread. A task is done on the board only when the ledger holds its red, green and verify lines.
+
 **The judge runs the product, not the diff.** The judge starts the application, runs the task's `e2e` command against the lab, reads the result against the expected findings, and writes the evidence line. A judge that only reads code and says PASS is a bug, and the subagent is redeployed.
 
 **Inspiration, and what each one teaches.** Superpowers: verification before claiming done, and test first. Matt Pocock's skills: tracer bullets, one thin vertical slice through every layer before widening, and grilling the plan with questions before building. Get Shit Done: goal-backward verification (what must be true when the phase is over, checked against the code and the running app), with each phase's must-haves written down before it starts. Check these against the sources the owner names before relying on the details.
